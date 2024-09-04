@@ -4,6 +4,7 @@ ENV PYTHONUNBUFFERED 1
 
 RUN apt-get update \
     && apt-get clean \
+    && apt-get install -y redis-server \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
