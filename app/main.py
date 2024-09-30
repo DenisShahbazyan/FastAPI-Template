@@ -13,4 +13,10 @@ app = FastAPI(
 
 add_cors_middleware(app)
 app.include_router(main_router)
-get_custom_docs(app, docs_url='/docs')
+get_custom_docs(
+    app,
+    path_to_static_dirs='./static',
+    docs_url='/docs',
+    swagger_js_url='/static/docs/swagger-ui-bundle.js',
+    swagger_css_url='/static/docs/swagger-ui.css',
+)

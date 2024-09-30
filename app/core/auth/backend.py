@@ -11,16 +11,16 @@ bearer_transport = BearerTransport(tokenUrl='/login')
 
 def get_access_jwt_strategy() -> JWTStrategy:
     return JWTStrategy(
-        secret=settings.auth.JWT_SECRET,
-        lifetime_seconds=settings.auth.JWT_ACCESS_TOKEN_LIFETIME_SECONDS,
+        secret=settings.jwt.SECRET,
+        lifetime_seconds=settings.jwt.ACCESS_TOKEN_LIFETIME_SECONDS,
         token_audience=['fastapi-users:auth'],
     )
 
 
 def get_refresh_jwt_strategy() -> JWTStrategy:
     return JWTStrategy(
-        secret=settings.auth.JWT_SECRET,
-        lifetime_seconds=settings.auth.JWT_REFRESH_TOKEN_LIFETIME_SECONDS,
+        secret=settings.jwt.SECRET,
+        lifetime_seconds=settings.jwt.REFRESH_TOKEN_LIFETIME_SECONDS,
         token_audience=['fastapi-users:refresh'],
     )
 

@@ -1,53 +1,58 @@
-from pathlib import Path
-from typing import Any, ClassVar
+import os
+from typing import Any
 
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from pydantic import PostgresDsn, model_validator
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel, PostgresDsn, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class App(BaseSettings):
-    STATIC_DIR: ClassVar[Path] = Path(__file__).parent.parent.parent / 'static'
+class DB(BaseModel):
+    host: str = 'localhost'
+    port: int = 5432
+    username: str = 'postgres'
+    password: str = 'postgres'
+    name: str = 'test_db'
+    url: str = 'postgresql+asyncpg://postgres:postgres@localhost:5432/test_db'
 
-
-class Postgres(BaseSettings):
-    DB_HOST: str
-    DB_PORT: int
-    DB_USERNAME: str
-    DB_PASSWORD: str
-    DB_NAME: str
-    DATABASE_URL: PostgresDsn
-
-    @model_validator(mode='before')
+    @model_validator(mode='after')
     def assemble_dsn(cls, values: dict[str, Any]) -> dict[str, Any]:  # noqa N805
-        values['DATABASE_URL'] = PostgresDsn.build(
+        values.url = PostgresDsn.build(
             scheme='postgresql+asyncpg',
-            username=values['DB_USERNAME'],
-            password=values['DB_PASSWORD'],
-            host=values['DB_HOST'],
-            port=int(values['DB_PORT']),
-            path=values['DB_NAME'],
+            username=values.username,
+            password=values.password,
+            host=values.host,
+            port=values.port,
+            path=values.name,
         )
+        values.url = str(values.url)
         return values
 
 
-class Auth(BaseSettings):
-    JWT_SECRET: str
-    JWT_ACCESS_TOKEN_LIFETIME_SECONDS: int
-    JWT_REFRESH_TOKEN_LIFETIME_SECONDS: int
+class JWT(BaseModel):
+    SECRET: str = '7X9QWN3P2R5T8V1Y4Z7B6D9F3G6H8J2K4M7N9P2Q5S7U1W3Y5A1C4E6F8H2J4L'
+    ACCESS_TOKEN_LIFETIME_SECONDS: int = 60 * 60  # 1 hour
+    REFRESH_TOKEN_LIFETIME_SECONDS: int = 60 * 60 * 24 * 7  # 7 days
+
+
+def get_env_file(environment: str | None) -> str:
+    match environment:
+        case 'docker':
+            return '.env.docker'
+        case _:
+            return '.env.local'
 
 
 class Settings(BaseSettings):
-    app: App = App()
-    postgres: Postgres = Postgres()
-    auth: Auth = Auth()
+    model_config = SettingsConfigDict(
+        env_file=(
+            '.env.template',
+            get_env_file(os.getenv('ENVIRONMENT')),
+        ),
+        case_sensitive=False,
+        env_nested_delimiter='__',
+    )
+
+    db: DB = DB()
+    jwt: JWT = JWT()
 
 
 settings = Settings()
-
-
-def config_static_folder(app: FastAPI):
-    static = settings.app.STATIC_DIR
-    static.mkdir(parents=True, exist_ok=True)
-    app.mount('/static', StaticFiles(directory=static), name='static')

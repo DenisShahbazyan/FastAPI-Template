@@ -9,7 +9,6 @@ skip_glob = [
     "__pycache__/*",
     "venv/*",
     "alembic/*",
-    "app/core/modules/KT_model/*",
     "app/api/endpoints/__init__.py",
     "app/core/base.py",
     "app/models/__init__.py",
@@ -26,7 +25,6 @@ exclude = [
     "__pycache__/*",
     "venv/*",
     "alembic/*",
-    "app/core/modules/KT_model/*",
     "app/api/endpoints/__init__.py",
     "app/core/base.py",
     "app/models/__init__.py",
@@ -37,11 +35,9 @@ exclude = [
     "__pycache__/*",
     "venv/*",
     "alembic/*",
-    "app/core/modules/KT_model/*",
     "app/api/endpoints/__init__.py",
     "app/core/base.py",
     "app/models/__init__.py",
-    "app/tests/core/modules/KT_model/adapter/test_adapter.py",
 ]
 lint.select = ["E", "W", "F", "C", "N"]
 lint.ignore = ["F821"]

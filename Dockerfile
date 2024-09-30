@@ -14,8 +14,8 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-RUN chmod +x scripts/start.sh
-
 EXPOSE 8000
 
-CMD ["./scripts/start.sh"]
+RUN chmod +x /app/scripts/start_with_migration.sh /app/scripts/start.sh
+
+ENTRYPOINT ["./scripts/start_with_migration.sh"]

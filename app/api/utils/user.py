@@ -32,7 +32,7 @@ def modify_standart_auth_endpoints(
             route.include_in_schema = False
 
 
-def modify_standard_logout_endpoints(router: APIRouter):
+def modify_standard_logout_endpoints(router: APIRouter) -> None:
     for route in router.routes:
         if route.path == '/auth/logout':
             route.include_in_schema = False
@@ -48,6 +48,6 @@ async def set_refresh_token_cookie(
         httponly=True,
         secure=True,
         samesite='lax',
-        max_age=settings.auth.JWT_REFRESH_TOKEN_LIFETIME_SECONDS,
+        max_age=settings.jwt.REFRESH_TOKEN_LIFETIME_SECONDS,
     )
     return response

@@ -33,7 +33,7 @@ class Base(DeclarativeBase):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
 
 
-engine = create_async_engine(str(settings.postgres.DATABASE_URL), pool_pre_ping=True)
+engine = create_async_engine(settings.db.url)
 
 
 AsyncSessionLocal = async_sessionmaker(

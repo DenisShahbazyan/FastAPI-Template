@@ -6,6 +6,7 @@ from fastapi.openapi.docs import (
     get_swagger_ui_html,
     get_swagger_ui_oauth2_redirect_html,
 )
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 
@@ -17,7 +18,7 @@ def get_custom_docs(
     swagger_css_url: str = 'https://unpkg.com/swagger-ui-dist@5/swagger-ui.css',
     redoc_url: str | None = '/redoc',
     redoc_js_url: str = 'https://unpkg.com/redoc@next/bundles/redoc.standalone.js',
-):
+) -> None:
     """Функция для подмены путей к js и css статике, если долго загружается swagger.
 
     Обязательно нужно отключить документацию swagger и redoc в `app = FastAPI(
@@ -77,7 +78,7 @@ def get_custom_docs(
     if docs_url:
 
         @app.get(docs_url, include_in_schema=False)
-        async def custom_swagger_ui_html():
+        async def custom_swagger_ui_html() -> HTMLResponse:
             return get_swagger_ui_html(
                 openapi_url=app.openapi_url,
                 title=app.title + ' - Swagger UI',
@@ -87,13 +88,13 @@ def get_custom_docs(
             )
 
     @app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
-    async def swagger_ui_redirect():
+    async def swagger_ui_redirect() -> HTMLResponse:
         return get_swagger_ui_oauth2_redirect_html()
 
     if redoc_url:
 
         @app.get(redoc_url, include_in_schema=False)
-        async def redoc_html():
+        async def redoc_html() -> HTMLResponse:
             return get_redoc_html(
                 openapi_url=app.openapi_url,
                 title=app.title + ' - ReDoc',
