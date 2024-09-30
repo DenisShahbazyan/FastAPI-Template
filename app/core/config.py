@@ -34,7 +34,8 @@ class Postgres(BaseSettings):
 
 class Auth(BaseSettings):
     JWT_SECRET: str
-    JWT_TOKEN_LIFETIME_SECONDS: int
+    JWT_ACCESS_TOKEN_LIFETIME_SECONDS: int
+    JWT_REFRESH_TOKEN_LIFETIME_SECONDS: int
 
 
 class Settings(BaseSettings):

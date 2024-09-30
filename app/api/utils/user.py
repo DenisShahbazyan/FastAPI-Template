@@ -1,4 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
+from fastapi_users.authentication.strategy.jwt import JWTStrategy
+
+from app.core.config import settings
+from app.models.user import User
 
 
 def modify_standart_auth_endpoints(
@@ -26,3 +30,24 @@ def modify_standart_auth_endpoints(
             route.path = new_path
             route.path_format = new_path
             route.include_in_schema = False
+
+
+def modify_standard_logout_endpoints(router: APIRouter):
+    for route in router.routes:
+        if route.path == '/auth/logout':
+            route.include_in_schema = False
+
+
+async def set_refresh_token_cookie(
+    user: User, response: Response, refresh_strategy: JWTStrategy
+) -> Response:
+    refresh_token = await refresh_strategy.write_token(user)
+    response.set_cookie(
+        key='refresh_token',
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite='lax',
+        max_age=settings.auth.JWT_REFRESH_TOKEN_LIFETIME_SECONDS,
+    )
+    return response
