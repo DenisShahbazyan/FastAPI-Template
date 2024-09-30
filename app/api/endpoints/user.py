@@ -5,7 +5,8 @@ from fastapi_users.manager import BaseUserManager
 from fastapi_users.router.common import ErrorCode
 
 from app.api.utils.user import modify_standart_auth_endpoints
-from app.core.user import auth_backend, fastapi_users
+from app.core.auth.backend import auth_backend
+from app.core.auth.users import fastapi_users
 from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserRead
 
 router = APIRouter()
