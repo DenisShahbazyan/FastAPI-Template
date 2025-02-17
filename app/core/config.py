@@ -1,7 +1,7 @@
 import os
-from typing import Any
+from typing import Self
 
-from pydantic import BaseModel, PostgresDsn, model_validator
+from pydantic import BaseModel, PostgresDsn, ValidationInfo, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,17 +14,18 @@ class DB(BaseModel):
     url: str = 'postgresql+asyncpg://postgres:postgres@localhost:5432/test_db'
 
     @model_validator(mode='after')
-    def assemble_dsn(cls, values: dict[str, Any]) -> dict[str, Any]:  # noqa N805
-        values.url = PostgresDsn.build(
-            scheme='postgresql+asyncpg',
-            username=values.username,
-            password=values.password,
-            host=values.host,
-            port=values.port,
-            path=values.name,
+    def assemble_dsn(self, validation_info: ValidationInfo) -> Self:
+        self.url = str(
+            PostgresDsn.build(
+                scheme='postgresql+asyncpg',
+                username=self.username,
+                password=self.password,
+                host=self.host,
+                port=int(self.port),
+                path=self.name,
+            )
         )
-        values.url = str(values.url)
-        return values
+        return self
 
 
 class JWT(BaseModel):

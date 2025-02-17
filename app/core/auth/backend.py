@@ -5,11 +5,12 @@ from fastapi_users.authentication import (
 )
 
 from app.core.config import settings
+from app.models.user import User
 
 bearer_transport = BearerTransport(tokenUrl='/login')
 
 
-def get_access_jwt_strategy() -> JWTStrategy:
+def get_access_jwt_strategy() -> JWTStrategy[User, int]:
     return JWTStrategy(
         secret=settings.jwt.SECRET,
         lifetime_seconds=settings.jwt.ACCESS_TOKEN_LIFETIME_SECONDS,
@@ -17,7 +18,7 @@ def get_access_jwt_strategy() -> JWTStrategy:
     )
 
 
-def get_refresh_jwt_strategy() -> JWTStrategy:
+def get_refresh_jwt_strategy() -> JWTStrategy[User, int]:
     return JWTStrategy(
         secret=settings.jwt.SECRET,
         lifetime_seconds=settings.jwt.REFRESH_TOKEN_LIFETIME_SECONDS,

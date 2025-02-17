@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Response
+from fastapi.routing import APIRoute
 from fastapi_users.authentication.strategy.jwt import JWTStrategy
 
 from app.core.config import settings
 from app.models.user import User
 
 
-def modify_standart_auth_endpoints(
+def modify_standard_auth_endpoints(
     router: APIRouter, old_path: str, new_path: str
 ) -> None:
     """### Модификация пути стандартного роутера авторизации в fastapi-users.
@@ -26,20 +27,22 @@ def modify_standart_auth_endpoints(
         router (APIRouter): _description_
     """
     for route in router.routes:
-        if route.path == old_path:
-            route.path = new_path
-            route.path_format = new_path
-            route.include_in_schema = False
+        if isinstance(route, APIRoute):
+            if route.path == old_path:
+                route.path = new_path
+                route.path_format = new_path
+                route.include_in_schema = False
 
 
 def modify_standard_logout_endpoints(router: APIRouter) -> None:
     for route in router.routes:
-        if route.path == '/auth/logout':
-            route.include_in_schema = False
+        if isinstance(route, APIRoute):
+            if route.path == '/auth/logout':
+                route.include_in_schema = False
 
 
 async def set_refresh_token_cookie(
-    user: User, response: Response, refresh_strategy: JWTStrategy
+    user: User, response: Response, refresh_strategy: JWTStrategy[User, int]
 ) -> Response:
     refresh_token = await refresh_strategy.write_token(user)
     response.set_cookie(

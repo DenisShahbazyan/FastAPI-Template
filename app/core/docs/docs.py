@@ -79,6 +79,8 @@ def get_custom_docs(
 
         @app.get(docs_url, include_in_schema=False)
         async def custom_swagger_ui_html() -> HTMLResponse:
+            if app.openapi_url is None:
+                raise ValueError('Openapi_url is None')
             return get_swagger_ui_html(
                 openapi_url=app.openapi_url,
                 title=app.title + ' - Swagger UI',
@@ -87,7 +89,10 @@ def get_custom_docs(
                 swagger_css_url=swagger_css_url,
             )
 
-    @app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
+    @app.get(
+        app.swagger_ui_oauth2_redirect_url or '/docs/oauth2-redirect',
+        include_in_schema=False,
+    )
     async def swagger_ui_redirect() -> HTMLResponse:
         return get_swagger_ui_oauth2_redirect_html()
 
@@ -95,6 +100,8 @@ def get_custom_docs(
 
         @app.get(redoc_url, include_in_schema=False)
         async def redoc_html() -> HTMLResponse:
+            if app.openapi_url is None:
+                raise ValueError('Openapi_url is None')
             return get_redoc_html(
                 openapi_url=app.openapi_url,
                 title=app.title + ' - ReDoc',

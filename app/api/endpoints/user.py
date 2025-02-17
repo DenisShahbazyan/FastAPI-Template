@@ -1,4 +1,5 @@
 from http import HTTPStatus
+from typing import Awaitable, Callable, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi_users.authentication import AuthenticationBackend, Authenticator
@@ -6,7 +7,7 @@ from fastapi_users.authentication.strategy.jwt import JWTStrategy
 from fastapi_users.manager import BaseUserManager
 from fastapi_users.router.common import ErrorCode
 
-from app.api.utils.user import modify_standart_auth_endpoints, set_refresh_token_cookie
+from app.api.utils.user import modify_standard_auth_endpoints, set_refresh_token_cookie
 from app.core.auth.backend import (
     auth_backend,
     get_access_jwt_strategy,
@@ -38,26 +39,25 @@ router.include_router(
 )
 
 
-modify_standart_auth_endpoints(router, '/auth/login', '/login')
-# modify_standard_logout_endpoints(router)
+modify_standard_auth_endpoints(router, '/auth/login', '/login')
 
 
 def get_auth_router(
-    backend: AuthenticationBackend,
-    get_user_manager: BaseUserManager,
+    backend: AuthenticationBackend[User, int],
+    get_user_manager: Callable[..., Awaitable[BaseUserManager[User, int]]],
     authenticator: Authenticator,
     requires_verification: bool = False,
-):
+) -> APIRouter:
     router = APIRouter()
 
     @router.post('/login')
     async def login(
         request: Request,
         credentials: LoginRequest,
-        user_manager: BaseUserManager = Depends(get_user_manager),
-        access_strategy: JWTStrategy = Depends(get_access_jwt_strategy),
-        refresh_strategy: JWTStrategy = Depends(get_refresh_jwt_strategy),
-    ) -> LoginResponse:
+        user_manager: BaseUserManager[User, int] = Depends(get_user_manager),
+        access_strategy: JWTStrategy[User, int] = Depends(get_access_jwt_strategy),
+        refresh_strategy: JWTStrategy[User, int] = Depends(get_refresh_jwt_strategy),
+    ) -> Response:
         user = await user_manager.authenticate(credentials)
         if user is None or not user.is_active:
             raise HTTPException(
@@ -80,7 +80,10 @@ def get_auth_router(
 router.include_router(
     get_auth_router(
         backend=auth_backend,
-        get_user_manager=fastapi_users.get_user_manager,
+        get_user_manager=cast(
+            Callable[..., Awaitable[BaseUserManager[User, int]]],
+            fastapi_users.get_user_manager,
+        ),
         authenticator=fastapi_users.authenticator,
         requires_verification=False,
     ),
@@ -93,8 +96,8 @@ router.include_router(
 async def refresh_token(
     request: Request,
     user_manager: BaseUserManager[User, int] = Depends(fastapi_users.get_user_manager),
-    access_strategy: JWTStrategy = Depends(get_access_jwt_strategy),
-    refresh_strategy: JWTStrategy = Depends(get_refresh_jwt_strategy),
+    access_strategy: JWTStrategy[User, int] = Depends(get_access_jwt_strategy),
+    refresh_strategy: JWTStrategy[User, int] = Depends(get_refresh_jwt_strategy),
 ) -> LoginResponse:
     refresh_token = request.cookies.get('refresh_token')
     if not refresh_token:
@@ -117,7 +120,7 @@ async def refresh_token(
 
 
 @router.get('/me', tags=['users'])
-async def me(current_user: User = Depends(current_user)) -> UserRead:
+async def me(current_user: UserRead = Depends(current_user)) -> UserRead:
     return current_user
 
 

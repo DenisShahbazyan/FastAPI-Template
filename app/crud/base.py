@@ -1,4 +1,4 @@
-from typing import Any, Generic, Type, TypeVar
+from typing import Any, Generic, Sequence, Type, TypeVar
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
@@ -50,9 +50,9 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def get_multi(
         self,
         async_session: AsyncSession,
-        order_by: tuple[ColumnElement, ...] | None = None,
+        order_by: tuple[ColumnElement[Any], ...] | None = None,
         **filter_by: Any,
-    ) -> list[SQLAlchemyModel]:
+    ) -> Sequence[SQLAlchemyModel]:
         """Получает список элементов.
 
         Args:
@@ -64,7 +64,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                 поле=значение
 
         Returns:
-            list[SQLAlchemyModel]: Список найденных объектов или [], если объекты не
+            Sequence[SQLAlchemyModel]: Список найденных объектов или [], если объекты не
                 найдены
 
         Example:
@@ -92,7 +92,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         """
         query = select(self.model).filter_by(**filter_by)
         if order_by:
-            query = query.order_by(order_by)
+            query = query.order_by(*order_by)
         db_objs = await async_session.execute(query)
         return db_objs.scalars().unique().all()
 

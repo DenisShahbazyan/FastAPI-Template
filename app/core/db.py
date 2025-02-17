@@ -2,13 +2,18 @@ import re
 from typing import AsyncGenerator
 
 from sqlalchemy import BigInteger, Identity, MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncAttrs,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 from app.core.config import settings
 
 
-class Base(DeclarativeBase):
+class Base(AsyncAttrs, DeclarativeBase):
     __abstract__ = True
 
     metadata = MetaData(
@@ -22,7 +27,7 @@ class Base(DeclarativeBase):
     )
 
     @declared_attr.directive
-    def __tablename__(cls):  # noqa: N805
+    def __tablename__(cls) -> str:  # noqa: N805
         name = cls.__name__
         name = re.sub(r'([A-Z]+)(?=[A-Z][a-z]|\d|\W|$)|\B([A-Z])', r'_\1\2', name)
         name = name.lower()

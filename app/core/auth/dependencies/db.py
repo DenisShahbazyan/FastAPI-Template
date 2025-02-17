@@ -10,5 +10,5 @@ from app.models.user import User
 
 async def get_user_db(
     session: AsyncSession = Depends(get_async_session),
-) -> AsyncGenerator[SQLAlchemyUserDatabase, None]:
+) -> AsyncGenerator[SQLAlchemyUserDatabase[User, int], None]:
     yield SQLAlchemyUserDatabase(session, User)
