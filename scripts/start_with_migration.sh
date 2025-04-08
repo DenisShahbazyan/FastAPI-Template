@@ -1,29 +1,71 @@
 #!/bin/bash
 
-run_migration() {
-    local retries=5
+wait_for_db() {
+    echo "$(date): Waiting for database to be ready..."
+    local max_retries=30
     local count=0
-    local delay=300 # 5 minutes in seconds
+    local wait_seconds=5
 
-    while [ $count -lt $retries ]; do
-        echo "$(date): Running alembic migration. Attempt $((count+1)) of $retries."
-        alembic upgrade head
+    # Получаем переменные окружения или используем значения по умолчанию
+    local host=${DB_HOST:-db}
+    local port=${DB_PORT:-5432}
+    local user=${DB_USER:-postgres}
+    local db_name=${DB_NAME:-postgres}
+
+    while [ $count -lt $max_retries ]; do
+        pg_isready -h $host -p $port -U $user -d $db_name -t 1 > /dev/null 2>&1
         if [ $? -eq 0 ]; then
-            echo "$(date): Migrations applied successfully."
+            echo "$(date): Database is ready!"
             return 0
-        else
-            echo "$(date): Migration failed. Attempt $((count+1)) of $retries. Retrying in $delay seconds."
-            count=$((count+1))
-            sleep $delay
         fi
+        echo "$(date): Database not ready. Waiting $wait_seconds seconds... (Attempt $((count+1)) of $max_retries)"
+        count=$((count+1))
+        sleep $wait_seconds
     done
 
-    echo "$(date): Migration failed after $retries attempts. Exiting."
+    echo "$(date): Database connection timed out after $max_retries attempts."
     return 1
+}
+
+run_migration() {
+    local retries=3
+    local count=0
+    local delay=30 # 30 секунд между попытками
+
+    echo "$(date): Running alembic migration..."
+    alembic upgrade head
+    if [ $? -eq 0 ]; then
+        echo "$(date): Migrations applied successfully."
+        return 0
+    else
+        echo "$(date): Initial migration attempt failed. Will retry a few times."
+
+        while [ $count -lt $retries ]; do
+            echo "$(date): Retrying migration. Attempt $((count+1)) of $retries. Waiting $delay seconds..."
+            sleep $delay
+
+            echo "$(date): Running alembic migration..."
+            alembic upgrade head
+            if [ $? -eq 0 ]; then
+                echo "$(date): Migrations applied successfully on retry."
+                return 0
+            else
+                echo "$(date): Migration retry failed. Attempt $((count+1)) of $retries."
+                count=$((count+1))
+            fi
+        done
+
+        echo "$(date): Migration failed after $retries retry attempts. Exiting."
+        return 1
+    fi
 }
 
 ./scripts/start.sh &
 
+# Ждём инициализации базы данных
+wait_for_db || { echo "Cannot connect to database. Exiting."; exit 1; }
+
+# Запускаем миграции только после успешного подключения к БД
 run_migration
 
 wait

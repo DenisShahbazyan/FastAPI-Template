@@ -1,8 +1,11 @@
 import os
+from pathlib import Path
 from typing import Self
 
 from pydantic import BaseModel, PostgresDsn, ValidationInfo, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 class DB(BaseModel):
@@ -12,6 +15,12 @@ class DB(BaseModel):
     password: str = 'postgres'
     name: str = 'test_db'
     url: str = 'postgresql+asyncpg://postgres:postgres@localhost:5432/test_db'
+
+    POOL_SIZE: int = 20
+    MAX_OVERFLOW: int = 10
+    POOL_TIMEOUT: int = 30
+    POOL_RECYCLE: int = 1800
+    ECHO: bool = False
 
     @model_validator(mode='after')
     def assemble_dsn(self, validation_info: ValidationInfo) -> Self:
@@ -37,16 +46,16 @@ class JWT(BaseModel):
 def get_env_file(environment: str | None) -> str:
     match environment:
         case 'docker':
-            return '.env.docker'
+            return os.path.join(BASE_DIR / '.env.docker')
         case _:
-            return '.env.local'
+            return os.path.join(BASE_DIR / '.env.local')
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(
-            '.env.template',
-            get_env_file(os.getenv('ENVIRONMENT')),
+            BASE_DIR / '.env.template',
+            BASE_DIR / get_env_file(os.getenv('ENVIRONMENT')),
         ),
         case_sensitive=False,
         env_nested_delimiter='__',

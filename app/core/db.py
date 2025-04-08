@@ -38,7 +38,14 @@ class Base(AsyncAttrs, DeclarativeBase):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
 
 
-engine = create_async_engine(settings.db.url)
+engine = create_async_engine(
+    settings.db.url,
+    pool_size=settings.db.POOL_SIZE,
+    max_overflow=settings.db.MAX_OVERFLOW,
+    pool_timeout=settings.db.POOL_TIMEOUT,
+    pool_recycle=settings.db.POOL_RECYCLE,
+    echo=settings.db.ECHO,
+)
 
 
 AsyncSessionLocal = async_sessionmaker(

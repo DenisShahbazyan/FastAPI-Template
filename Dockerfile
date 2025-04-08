@@ -1,21 +1,29 @@
-FROM python:3.12.3-slim
+FROM python:3.13.2-slim
 
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update \
+    && apt-get install -y postgresql-client \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt .
-
-RUN pip install -r requirements.txt
+# Установка uv
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && rm /uv-installer.sh
+ENV PATH="/root/.local/bin/:$PATH"
 
 COPY . .
+
+RUN uv sync --frozen --no-install-project --no-dev
 
 EXPOSE 8000
 
 RUN chmod +x /app/scripts/start_with_migration.sh /app/scripts/start.sh
+
+# Помещаем скрипты в PATH, чтобы их можно было запускать без uv run
+ENV PATH="/app/.venv/bin:$PATH"
 
 ENTRYPOINT ["./scripts/start_with_migration.sh"]
