@@ -2,7 +2,8 @@ from http import HTTPStatus
 from typing import Awaitable, Callable, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi_users.authentication import AuthenticationBackend, Authenticator
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi_users.authentication import AuthenticationBackend
 from fastapi_users.authentication.strategy.jwt import JWTStrategy
 from fastapi_users.manager import BaseUserManager
 from fastapi_users.router.common import ErrorCode
@@ -45,7 +46,6 @@ modify_standard_auth_endpoints(router, '/auth/login', '/login')
 def get_auth_router(
     backend: AuthenticationBackend[User, int],
     get_user_manager: Callable[..., Awaitable[BaseUserManager[User, int]]],
-    authenticator: Authenticator,
     requires_verification: bool = False,
 ) -> APIRouter:
     router = APIRouter()
@@ -58,7 +58,12 @@ def get_auth_router(
         access_strategy: JWTStrategy[User, int] = Depends(get_access_jwt_strategy),
         refresh_strategy: JWTStrategy[User, int] = Depends(get_refresh_jwt_strategy),
     ) -> Response:
-        user = await user_manager.authenticate(credentials)
+        oauth_credentials = OAuth2PasswordRequestForm(
+            username=credentials.username,
+            password=credentials.password,
+        )
+
+        user = await user_manager.authenticate(oauth_credentials)
         if user is None or not user.is_active:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -84,7 +89,6 @@ router.include_router(
             Callable[..., Awaitable[BaseUserManager[User, int]]],
             fastapi_users.get_user_manager,
         ),
-        authenticator=fastapi_users.authenticator,
         requires_verification=False,
     ),
     prefix='/auth',

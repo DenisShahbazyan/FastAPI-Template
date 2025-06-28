@@ -51,10 +51,10 @@ line-length = 88
 #                  MyPy                  #
 ##########################################
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 mypy_path = "$MYPY_CONFIG_FILE_DIR/app/"
 
-exclude = ["app/tests/*", "alembic/*", "venv/*", "orval_schemas/*"]
+exclude = ["alembic/*", "venv/*"]
 plugins = ["pydantic.mypy"]
 
 strict = true
@@ -84,5 +84,6 @@ dev = [
     "black>=25.1.0",
     "flake8>=7.2.0",
     "flake8-pyproject>=1.2.3",
+    "mypy>=1.16.1",
     "pre-commit>=4.2.0",
 ]
