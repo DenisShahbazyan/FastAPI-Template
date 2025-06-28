@@ -4,8 +4,9 @@ from typing import Any, Generic, Sequence, Type, TypeVar
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, delete, select
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy import ColumnElement, delete
+from sqlalchemy import exists as sql_exists
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import Base
@@ -33,44 +34,164 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def get(
         self,
         async_session: AsyncSession,
-        obj_id: int,
+        **filter_by: Any,
     ) -> SQLAlchemyModel | None:
-        """Получает один элемент по его id.
+        """Получает один элемент по заданным полям.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            obj_id (int): ИД объекта
+            **filter_by (Any): Именованные аргументы для фильтрации в формате
+                поле=значение
 
         Returns:
             SQLAlchemyModel | None: Найденный объект или None, если объект не найден
+
+        Example:
+        ```
+            # По ID
+            user = await crud.get(session, id=1)
+
+            # По email
+            user = await crud.get(session, email="test@example.com")
+
+            # По нескольким полям
+            user = await crud.get(session, email="test@example.com", is_active=True)
+        ```
         """
-        db_obj = await async_session.execute(
-            select(self.model).where(self.model.id == obj_id)
-        )
-        return db_obj.scalars().first()
+        if not filter_by:
+            raise ValueError('Необходимо указать хотя бы одно поле для поиска')
+
+        query = select(self.model).filter_by(**filter_by)
+        result = await async_session.execute(query)
+        return result.scalars().first()
 
     async def get_or_404(
         self,
         async_session: AsyncSession,
-        obj_id: int,
-        detail: str | None = None,
+        *,
+        _detail: str | None = None,
+        **filter_by: Any,
     ) -> SQLAlchemyModel:
-        """Получает один элемент по его id или возвращает 404 ошибку.
+        """Получает один элемент по заданным полям или возвращает 404 ошибку.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            obj_id (int): ИД объекта
-            detail (str | None): Кастомное сообщение об ошибке
+            _detail (str | None): Кастомное сообщение об ошибке
+            **filter_by (Any): Именованные аргументы для фильтрации в формате
+                поле=значение
 
         Returns:
             SQLAlchemyModel: Найденный объект
 
         Raises:
             HTTPException: 404 если объект не найден
+
+        Example:
+        ```
+            # По ID
+            user = await crud.get_or_404(session, id=1)
+
+            # По email с кастомной ошибкой
+            user = await crud.get_or_404(
+                session,
+                _detail="Пользователь не найден",
+                email="test@example.com"
+            )
+
+            # По нескольким полям
+            user = await crud.get_or_404(
+                session,
+                email="test@example.com",
+                is_active=True
+            )
+        ```
         """
-        db_obj = await self.get(async_session, obj_id)
+        db_obj = await self.get(async_session, **filter_by)
+
         if not db_obj:
-            error_detail = detail or f"{self.model.__name__} with id {obj_id} not found"
+            if _detail:
+                error_detail = _detail
+            else:
+                # Формируем красивое сообщение об ошибке
+                filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                filter_str = ', '.join(filter_parts)
+                error_detail = f"{self.model.__name__} with {filter_str} not found"
+
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return db_obj
+
+    async def get_by_condition(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+    ) -> SQLAlchemyModel | None:
+        """Получает один элемент по сложным условиям.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+
+        Example:
+        ```
+            # OR условие
+            user = await crud.get_by_condition(
+                session,
+                or_(User.email == "test@test.com", User.username == "test")
+            )
+
+            # Сложные условия
+            user = await crud.get_by_condition(
+                session,
+                User.age >= 18,
+                User.is_active == True,
+                or_(User.role == "admin", User.role == "moderator")
+            )
+        ```
+        """
+        if not conditions:
+            raise ValueError('Необходимо указать хотя бы одно условие')
+
+        query = select(self.model).filter(*conditions)
+        result = await async_session.execute(query)
+        return result.scalars().first()
+
+    async def get_by_condition_or_404(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+        _detail: str | None = None,
+    ) -> SQLAlchemyModel:
+        """Получает один элемент по сложным условиям или возвращает 404 ошибку.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+
+        Example:
+        ```
+            # OR условие
+            user = await crud.get_by_condition(
+                session,
+                or_(User.email == "test@test.com", User.username == "test")
+            )
+
+            # Сложные условия
+            user = await crud.get_by_condition(
+                session,
+                User.age >= 18,
+                User.is_active == True,
+                or_(User.role == "admin", User.role == "moderator")
+            )
+        ```
+        """
+        db_obj = await self.get_by_condition(async_session, *conditions)
+
+        if not db_obj:
+            error_detail = _detail or f"{self.model.__name__} not found"
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=error_detail,
@@ -81,15 +202,19 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         order_by: tuple[ColumnElement[Any], ...] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
         **filter_by: Any,
     ) -> Sequence[SQLAlchemyModel]:
-        """Получает список элементов.
+        """Получает список элементов с простыми условиями.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             order_by (tuple[ColumnElement, ...] | None, optional): Кортеж столбцов для
                 сортировки. Используйте .asc() для сортировки по возрастанию и .desc()
                 для убывания. По умолчанию None.
+            limit (int | None): Максимальное количество записей
+            offset (int | None): Смещение для пагинации
             **filter_by (Any): Именованные аргументы для фильтрации в формате
                 поле=значение
 
@@ -99,32 +224,587 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         Example:
         ```
+            # Все записи
+            users = await crud.get_multi(session)
+
+            # С фильтрацией
+            active_users = await crud.get_multi(session, is_active=True)
+
             # Сортировка по одному полю по возрастанию
-            await crud.get_multi(
+            users = await crud.get_multi(
                 session,
                 order_by=(User.created_at.asc(),)
             )
 
-            # Сортировка по нескольким полям
-            await crud.get_multi(
+            # Сортировка по нескольким полям с фильтрацией
+            users = await crud.get_multi(
                 session,
-                order_by=(User.role.asc(), User.created_at.desc())
-            )
-
-            # Сортировка с фильтрацией
-            await crud.get_multi(
-                session,
-                order_by=(User.created_at.desc(),),
+                order_by=(User.role.asc(), User.created_at.desc()),
                 is_active=True,
                 role='admin'
+            )
+
+            # С пагинацией
+            users = await crud.get_multi(
+                session,
+                limit=10,
+                offset=20,
+                is_active=True
             )
         ```
         """
         query = select(self.model).filter_by(**filter_by)
+
         if order_by:
             query = query.order_by(*order_by)
+
+        if offset is not None:
+            query = query.offset(offset)
+
+        if limit is not None:
+            query = query.limit(limit)
+
         db_objs = await async_session.execute(query)
         return db_objs.scalars().unique().all()
+
+    async def get_multi_or_404(
+        self,
+        async_session: AsyncSession,
+        order_by: tuple[ColumnElement[Any], ...] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        *,
+        _detail: str | None = None,
+        **filter_by: Any,
+    ) -> Sequence[SQLAlchemyModel]:
+        """Получает список элементов с простыми условиями или возвращает 404 ошибку.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            order_by (tuple[ColumnElement, ...] | None, optional): Кортеж столбцов для
+                сортировки
+            limit (int | None): Максимальное количество записей
+            offset (int | None): Смещение для пагинации
+            _detail (str | None): Кастомное сообщение об ошибке
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            Sequence[SQLAlchemyModel]: Список найденных объектов (не пустой)
+
+        Raises:
+            HTTPException: 404 если объекты не найдены
+
+        Example:
+        ```
+            # Получить всех админов (ошибка если нет ни одного)
+            admins = await crud.get_multi_or_404(session, role="admin")
+
+            # С кастомной ошибкой
+            active_users = await crud.get_multi_or_404(
+                session,
+                _detail="Нет активных пользователей",
+                is_active=True
+            )
+
+            # С сортировкой и лимитом
+            recent_posts = await crud.get_multi_or_404(
+                session,
+                order_by=(Post.created_at.desc(),),
+                limit=5,
+                published=True
+            )
+        ```
+        """
+        db_objs = await self.get_multi(
+            async_session, order_by=order_by, limit=limit, offset=offset, **filter_by
+        )
+
+        if not db_objs:
+            if _detail:
+                error_detail = _detail
+            else:
+                # Формируем красивое сообщение об ошибке
+                if filter_by:
+                    filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                    filter_str = ', '.join(filter_parts)
+                    error_detail = f"No {self.model.__name__} found with {filter_str}"
+                else:
+                    error_detail = f"No {self.model.__name__} found"
+
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return db_objs
+
+    async def get_multi_by_condition(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+        order_by: tuple[ColumnElement[Any], ...] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> Sequence[SQLAlchemyModel]:
+        """Получает список элементов по сложным условиям.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+            order_by: Кортеж столбцов для сортировки
+            limit: Максимальное количество записей
+            offset: Смещение для пагинации
+
+        Returns:
+            Sequence[SQLAlchemyModel]: Список найденных объектов
+
+        Example:
+        ```
+            # OR условие
+            users = await crud.get_multi_by_condition(
+                session,
+                or_(User.role == "admin", User.role == "moderator")
+            )
+
+            # Сложные условия с сортировкой
+            users = await crud.get_multi_by_condition(
+                session,
+                User.age >= 18,
+                User.is_active == True,
+                or_(User.role == "admin", User.role == "moderator"),
+                order_by=(User.created_at.desc(),)
+            )
+
+            # С пагинацией
+            users = await crud.get_multi_by_condition(
+                session,
+                User.is_active == True,
+                User.age.between(18, 65),
+                order_by=(User.username.asc(),),
+                limit=20,
+                offset=0
+            )
+
+            # Поиск по подстроке
+            users = await crud.get_multi_by_condition(
+                session,
+                User.email.ilike("%@gmail.com"),
+                User.is_active == True
+            )
+        ```
+        """
+        query = select(self.model)
+
+        if conditions:
+            query = query.filter(*conditions)
+
+        if order_by:
+            query = query.order_by(*order_by)
+
+        if offset is not None:
+            query = query.offset(offset)
+
+        if limit is not None:
+            query = query.limit(limit)
+
+        result = await async_session.execute(query)
+        return result.scalars().unique().all()
+
+    async def get_multi_by_condition_or_404(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+        order_by: tuple[ColumnElement[Any], ...] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        _detail: str | None = None,
+    ) -> Sequence[SQLAlchemyModel]:
+        """Получает список элементов по сложным условиям или возвращает 404 ошибку.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+            order_by: Кортеж столбцов для сортировки
+            limit: Максимальное количество записей
+            offset: Смещение для пагинации
+            _detail: Кастомное сообщение об ошибке
+
+        Returns:
+            Sequence[SQLAlchemyModel]: Список найденных объектов (не пустой)
+
+        Raises:
+            HTTPException: 404 если объекты не найдены
+
+        Example:
+        ```
+            # OR условие (ошибка если никого не найдено)
+            moderators = await crud.get_multi_by_condition_or_404(
+                session,
+                or_(User.role == "admin", User.role == "moderator")
+            )
+
+            # Сложные условия с кастомной ошибкой
+            adult_users = await crud.get_multi_by_condition_or_404(
+                session,
+                User.age >= 18,
+                User.is_active == True,
+                User.email.ilike("%@gmail.com"),
+                _detail="Нет взрослых пользователей с Gmail",
+                order_by=(User.username.asc(),)
+            )
+
+            # Поиск с пагинацией (ошибка если страница пустая)
+            search_results = await crud.get_multi_by_condition_or_404(
+                session,
+                User.username.ilike(f"%{search_term}%"),
+                User.is_active == True,
+                order_by=(User.created_at.desc(),),
+                limit=10,
+                offset=page_offset,
+                _detail=f"Пользователи с '{search_term}' не найдены"
+            )
+        ```
+        """
+        db_objs = await self.get_multi_by_condition(
+            async_session, *conditions, order_by=order_by, limit=limit, offset=offset
+        )
+
+        if not db_objs:
+            error_detail = (
+                _detail or f"No {self.model.__name__} found matching conditions"
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return db_objs
+
+    async def count(
+        self,
+        async_session: AsyncSession,
+        **filter_by: Any,
+    ) -> int:
+        """Подсчитывает количество записей с простыми условиями.
+
+        Args:
+            async_session: Асинхронная сессия
+            **filter_by: Именованные аргументы для фильтрации
+
+        Returns:
+            int: Количество записей
+
+        Example:
+        ```
+            # Общее количество
+            total = await crud.count(session)
+
+            # С фильтрацией
+            active_count = await crud.count(session, is_active=True)
+            admin_count = await crud.count(session, role="admin", is_active=True)
+        ```
+        """
+        query = select(func.count(self.model.id)).filter_by(**filter_by)
+        result = await async_session.execute(query)
+        return result.scalar() or 0
+
+    async def count_by_condition(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+    ) -> int:
+        """Подсчитывает количество записей по сложным условиям.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+
+        Returns:
+            int: Количество записей
+
+        Example:
+        ```
+            # OR условие
+            count = await crud.count_by_condition(
+                session,
+                or_(User.role == "admin", User.role == "moderator")
+            )
+
+            # Сложные условия
+            count = await crud.count_by_condition(
+                session,
+                User.age >= 18,
+                User.is_active == True,
+                User.email.ilike("%@gmail.com")
+            )
+        ```
+        """
+        query = select(func.count(self.model.id))
+
+        if conditions:
+            query = query.filter(*conditions)
+
+        result = await async_session.execute(query)
+        return result.scalar() or 0
+
+    async def exists(
+        self,
+        async_session: AsyncSession,
+        **filter_by: Any,
+    ) -> bool:
+        """Проверяет существование записи с простыми условиями.
+
+        Args:
+            async_session: Асинхронная сессия
+            **filter_by: Именованные аргументы для фильтрации
+
+        Returns:
+            bool: True если запись существует
+
+        Example:
+        ```
+            # Проверка существования
+            exists = await crud.exists(session, email="test@test.com")
+            exists = await crud.exists(session, username="admin", is_active=True)
+        ```
+        """
+        query = select(
+            sql_exists().where(select(self.model.id).filter_by(**filter_by).exists())
+        )
+        result = await async_session.execute(query)
+        return result.scalar() or False
+
+    async def exists_by_condition(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+    ) -> bool:
+        """Проверяет существование записи по сложным условиям.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+
+        Returns:
+            bool: True если запись существует
+
+        Example:
+        ```
+            # OR условие
+            exists = await crud.exists_by_condition(
+                session,
+                or_(User.email == "test@test.com", User.username == "test")
+            )
+
+            # Сложные условия
+            exists = await crud.exists_by_condition(
+                session,
+                User.age >= 18,
+                User.is_active == True
+            )
+        ```
+        """
+        subquery = select(self.model.id)
+        if conditions:
+            subquery = subquery.filter(*conditions)
+
+        query = select(sql_exists(subquery))
+        result = await async_session.execute(query)
+        return result.scalar() or False
+
+    async def get_or_create(
+        self,
+        async_session: AsyncSession,
+        defaults: dict[str, Any] | None = None,
+        **filter_by: Any,
+    ) -> tuple[SQLAlchemyModel, bool]:
+        """Получает объект или создает его, если не существует.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            defaults (dict[str, Any] | None): Дополнительные поля для создания объекта
+            **filter_by (Any): Поля для поиска существующего объекта
+
+        Returns:
+            tuple[SQLAlchemyModel, bool]: Кортеж (объект, создан_ли_новый)
+                - объект: найденный или созданный объект
+                - создан_ли_новый: True если объект был создан, False если найден
+
+        Example:
+        ```
+            # Простой случай - получить или создать пользователя по email
+            user, created = await crud.get_or_create(
+                session,
+                email="test@example.com"
+            )
+            if created:
+                print("Создан новый пользователь")
+            else:
+                print("Пользователь уже существует")
+
+            # С дополнительными полями для создания
+            user, created = await crud.get_or_create(
+                session,
+                defaults={
+                    "username": "john_doe",
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "is_active": True
+                },
+                email="john@example.com"
+            )
+
+            # Сложный пример - категория с slug
+            category, created = await crud.get_or_create(
+                session,
+                defaults={
+                    "name": "Technology",
+                    "description": "Tech articles"
+                },
+                slug="technology"
+            )
+
+            # Получить или создать настройки пользователя
+            settings, created = await crud.get_or_create(
+                session,
+                defaults={
+                    "theme": "dark",
+                    "notifications": True,
+                    "language": "en"
+                },
+                user_id=user_id
+            )
+        ```
+        """
+        if not filter_by:
+            raise ValueError('Необходимо указать хотя бы одно поле для поиска')
+
+        # Сначала пытаемся найти существующий объект
+        db_obj = await self.get(async_session, **filter_by)
+
+        if db_obj:
+            # Объект найден, возвращаем его
+            return db_obj, False
+
+        # Объект не найден, создаем новый
+        try:
+            # Объединяем поля поиска и defaults для создания
+            create_data = filter_by.copy()
+            if defaults:
+                create_data.update(defaults)
+
+            # Создаем объект
+            db_obj = self.model(**create_data)
+            async_session.add(db_obj)
+            await async_session.commit()
+            await async_session.refresh(db_obj)
+
+            return db_obj, True
+
+        except Exception as e:
+            # В случае race condition (если другой процесс создал объект между нашими
+            # запросами)
+            # откатываем транзакцию и пытаемся найти объект еще раз
+            await async_session.rollback()
+
+            db_obj = await self.get(async_session, **filter_by)
+            if db_obj:
+                return db_obj, False
+
+            # Если объект все еще не найден, пробрасываем исключение
+            raise e
+
+    async def get_or_create_with_pydantic(
+        self,
+        async_session: AsyncSession,
+        obj_in: PydanticSchema,
+        search_fields: list[str],
+        user_id: int | None = None,
+    ) -> tuple[SQLAlchemyModel, bool]:
+        """Получает объект или создает его используя Pydantic модель.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            obj_in (PydanticSchema): Pydantic объект с данными
+            search_fields (list[str]): Список полей для поиска существующего объекта
+            user_id (int | None): ИД пользователя для привязки (опционально)
+
+        Returns:
+            tuple[SQLAlchemyModel, bool]: Кортеж (объект, создан_ли_новый)
+
+        Example:
+        ```
+            # Создаем Pydantic объект
+            user_data = UserCreate(
+                username="john_doe",
+                email="john@example.com",
+                first_name="John",
+                last_name="Doe"
+            )
+
+            # Ищем по email, если не найден - создаем со всеми данными
+            user, created = await crud.get_or_create_with_pydantic(
+                session,
+                user_data,
+                search_fields=["email"]
+            )
+
+            # Поиск по нескольким полям
+            post_data = PostCreate(
+                title="My Post",
+                slug="my-post",
+                content="Content here",
+                category_id=1
+            )
+
+            post, created = await crud.get_or_create_with_pydantic(
+                session,
+                post_data,
+                search_fields=["slug", "category_id"],
+                user_id=current_user.id
+            )
+        ```
+        """
+        if not search_fields:
+            raise ValueError('Необходимо указать хотя бы одно поле для поиска')
+
+        obj_data = obj_in.model_dump()
+
+        # Извлекаем поля для поиска
+        search_criteria = {}
+        for field in search_fields:
+            if field in obj_data:
+                search_criteria[field] = obj_data[field]
+            else:
+                raise ValueError(f"Поле '{field}' не найдено в данных объекта")
+
+        # Пытаемся найти существующий объект
+        db_obj = await self.get(async_session, **search_criteria)
+
+        if db_obj:
+            return db_obj, False
+
+        # Создаем новый объект
+        try:
+            if user_id is not None:
+                obj_data['user_id'] = user_id
+
+            db_obj = self.model(**obj_data)
+            async_session.add(db_obj)
+            await async_session.commit()
+            await async_session.refresh(db_obj)
+
+            return db_obj, True
+
+        except Exception as e:
+            await async_session.rollback()
+
+            # Проверяем еще раз на случай race condition
+            db_obj = await self.get(async_session, **search_criteria)
+            if db_obj:
+                return db_obj, False
+
+            raise e
 
     async def create(
         self,
@@ -190,15 +870,24 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         db_obj: SQLAlchemyModel,
         obj_in: PydanticSchema,
     ) -> SQLAlchemyModel:
-        """Обновляет объект.
+        """Обновляет объект по экземпляру объекта.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            db_obj (SQLAlchemyModel): Объект из БД, который будет обновлен.
-            obj_in (PydanticSchema): Pydantic объект, что будем обновлять.
+            db_obj (SQLAlchemyModel): Объект из БД, который будет обновлен
+            obj_in (PydanticSchema): Pydantic объект с данными для обновления
 
         Returns:
             SQLAlchemyModel: Обновленный объект
+
+        Example:
+        ```
+            # Получаем объект и обновляем его
+            user = await crud.get(session, id=1)
+            if user:
+                update_data = UserUpdate(username="new_username", email="new@email.com")
+                updated_user = await crud.update(session, user, update_data)
+        ```
         """
         obj_data = jsonable_encoder(db_obj)
         update_data = obj_in.model_dump(exclude_unset=True)
@@ -211,40 +900,758 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         await async_session.refresh(db_obj)
         return db_obj
 
+    async def update_or_404(
+        self,
+        async_session: AsyncSession,
+        obj_in: PydanticSchema,
+        **filter_by: Any,
+    ) -> SQLAlchemyModel:
+        """Находит один объект и обновляет его, или возвращает 404 ошибку.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            obj_in (PydanticSchema): Pydantic объект с данными для обновления
+            **filter_by (Any): Именованные аргументы для поиска объекта
+
+        Returns:
+            SQLAlchemyModel: Обновленный объект
+
+        Raises:
+            HTTPException: 404 если объект не найден
+
+        Example:
+        ```
+            # Найти и обновить пользователя
+            update_data = UserUpdate(username="new_username", email="new@email.com")
+            updated_user = await crud.update_or_404(
+                session,
+                update_data,
+                id=1
+            )
+
+            # Найти и обновить пост по slug
+            post_update = PostUpdate(title="New Title", content="New content")
+            updated_post = await crud.update_or_404(
+                session,
+                post_update,
+                slug="my-post-slug"
+            )
+        ```
+        """
+        db_obj = await self.get_or_404(async_session, **filter_by)
+        return await self.update(async_session, db_obj, obj_in)
+
+    async def update_by_fields(
+        self,
+        async_session: AsyncSession,
+        update_data: dict[str, Any],
+        **filter_by: Any,
+    ) -> int:
+        """Обновляет объекты по простым условиям.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            update_data (dict[str, Any]): Словарь с данными для обновления
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            int: Количество обновленных объектов
+
+        Example:
+        ```
+            # Обновить email пользователя
+            updated_count = await crud.update_by_fields(
+                session,
+                {"email": "new@email.com", "is_verified": True},
+                id=1
+            )
+
+            # Деактивировать всех пользователей определенной роли
+            updated_count = await crud.update_by_fields(
+                session,
+                {"is_active": False},
+                role="guest"
+            )
+
+            # Обновить статус всех постов пользователя
+            updated_count = await crud.update_by_fields(
+                session,
+                {"status": "archived"},
+                user_id=user_id,
+                published=False
+            )
+        ```
+        """
+        if not filter_by:
+            raise ValueError('Необходимо указать хотя бы одно поле для фильтрации')
+
+        if not update_data:
+            raise ValueError('Необходимо указать данные для обновления')
+
+        stmt = update(self.model).filter_by(**filter_by).values(**update_data)
+        result = await async_session.execute(stmt)
+        await async_session.commit()
+        return result.rowcount or 0
+
+    async def update_by_fields_or_404(
+        self,
+        async_session: AsyncSession,
+        update_data: dict[str, Any],
+        *,
+        _detail: str | None = None,
+        **filter_by: Any,
+    ) -> int:
+        """Обновляет объекты по простым условиям или возвращает 404 ошибку.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            update_data (dict[str, Any]): Словарь с данными для обновления
+            _detail (str | None): Кастомное сообщение об ошибке
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            int: Количество обновленных объектов (больше 0)
+
+        Raises:
+            HTTPException: 404 если объекты не найдены
+
+        Example:
+        ```
+            # Обновить пользователя по email (ошибка если не найден)
+            updated_count = await crud.update_by_fields_or_404(
+                session,
+                {"username": "new_username"},
+                email="test@example.com"
+            )
+
+            # С кастомной ошибкой
+            updated_count = await crud.update_by_fields_or_404(
+                session,
+                {"status": "completed"},
+                _detail="Задача для обновления не найдена",
+                id=task_id
+            )
+        ```
+        """
+        updated_count = await self.update_by_fields(
+            async_session, update_data, **filter_by
+        )
+
+        if updated_count == 0:
+            if _detail:
+                error_detail = _detail
+            else:
+                filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                filter_str = ', '.join(filter_parts)
+                error_detail = (
+                    f"No {self.model.__name__} found to update with {filter_str}"
+                )
+
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return updated_count
+
+    async def update_by_condition(
+        self,
+        async_session: AsyncSession,
+        update_data: dict[str, Any],
+        *conditions: ColumnElement[bool],
+    ) -> int:
+        """Обновляет объекты по сложным условиям.
+
+        Args:
+            async_session: Асинхронная сессия
+            update_data (dict[str, Any]): Словарь с данными для обновления
+            *conditions: Условия для фильтрации
+
+        Returns:
+            int: Количество обновленных объектов
+
+        Example:
+        ```
+            # Обновить всех пользователей старше 18 или с подтвержденным email
+            from sqlalchemy import or_
+
+            updated_count = await crud.update_by_condition(
+                session,
+                {"can_vote": True},
+                or_(User.age >= 18, User.email_verified == True)
+            )
+
+            # Архивировать старые посты
+            from datetime import datetime, timedelta
+
+            updated_count = await crud.update_by_condition(
+                session,
+                {"status": "archived", "archived_at": datetime.now()},
+                Post.created_at < datetime.now() - timedelta(days=365),
+                Post.status == "published"
+            )
+
+            # Обновить временные файлы
+            updated_count = await crud.update_by_condition(
+                session,
+                {"is_permanent": True, "expires_at": None},
+                File.is_temporary == True,
+                File.download_count > 10
+            )
+        ```
+        """
+        if not conditions:
+            raise ValueError('Необходимо указать хотя бы одно условие для обновления')
+
+        if not update_data:
+            raise ValueError('Необходимо указать данные для обновления')
+
+        stmt = update(self.model).filter(*conditions).values(**update_data)
+        result = await async_session.execute(stmt)
+        await async_session.commit()
+        return result.rowcount or 0
+
+    async def update_by_condition_or_404(
+        self,
+        async_session: AsyncSession,
+        update_data: dict[str, Any],
+        *conditions: ColumnElement[bool],
+        _detail: str | None = None,
+    ) -> int:
+        """Обновляет объекты по сложным условиям или возвращает 404 ошибку.
+
+        Args:
+            async_session: Асинхронная сессия
+            update_data (dict[str, Any]): Словарь с данными для обновления
+            *conditions: Условия для фильтрации
+            _detail: Кастомное сообщение об ошибке
+
+        Returns:
+            int: Количество обновленных объектов (больше 0)
+
+        Raises:
+            HTTPException: 404 если объекты не найдены
+
+        Example:
+        ```
+            # Обновить активных пользователей (ошибка если таких нет)
+            updated_count = await crud.update_by_condition_or_404(
+                session,
+                {"last_notification_sent": datetime.now()},
+                User.is_active == True,
+                User.notifications_enabled == True
+            )
+
+            # С кастомной ошибкой
+            updated_count = await crud.update_by_condition_or_404(
+                session,
+                {"status": "reviewed"},
+                Post.status == "pending",
+                Post.created_at < datetime.now() - timedelta(hours=24),
+                _detail="Нет постов ожидающих проверку"
+            )
+        ```
+        """
+        updated_count = await self.update_by_condition(
+            async_session, update_data, *conditions
+        )
+
+        if updated_count == 0:
+            error_detail = (
+                _detail
+                or f"No {self.model.__name__} found to update matching conditions"
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return updated_count
+
+    async def update_with_pydantic_by_fields(
+        self,
+        async_session: AsyncSession,
+        obj_in: PydanticSchema,
+        **filter_by: Any,
+    ) -> int:
+        """Обновляет объекты используя Pydantic модель по простым условиям.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            obj_in (PydanticSchema): Pydantic объект с данными для обновления
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            int: Количество обновленных объектов
+
+        Example:
+        ```
+            # Обновить пользователя используя Pydantic модель
+            update_data = UserUpdate(username="new_username", email="new@email.com")
+            updated_count = await crud.update_with_pydantic_by_fields(
+                session,
+                update_data,
+                id=1
+            )
+
+            # Обновить настройки всех пользователей
+            settings_update = UserSettingsUpdate(theme="dark", notifications=False)
+            updated_count = await crud.update_with_pydantic_by_fields(
+                session,
+                settings_update,
+                role="user"
+            )
+        ```
+        """
+        update_data = obj_in.model_dump(exclude_unset=True)
+        return await self.update_by_fields(async_session, update_data, **filter_by)
+
+    async def update_with_pydantic_by_fields_or_404(
+        self,
+        async_session: AsyncSession,
+        obj_in: PydanticSchema,
+        *,
+        _detail: str | None = None,
+        **filter_by: Any,
+    ) -> int:
+        """Обновляет объекты используя Pydantic модель по простым условиям или
+        возвращает 404.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            obj_in (PydanticSchema): Pydantic объект с данными для обновления
+            _detail (str | None): Кастомное сообщение об ошибке
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            int: Количество обновленных объектов (больше 0)
+
+        Raises:
+            HTTPException: 404 если объекты не найдены
+
+        Example:
+        ```
+            # Обновить пользователя (ошибка если не найден)
+            update_data = UserUpdate(username="new_username")
+            updated_count = await crud.update_with_pydantic_by_fields_or_404(
+                session,
+                update_data,
+                email="test@example.com"
+            )
+        ```
+        """
+        update_data = obj_in.model_dump(exclude_unset=True)
+        return await self.update_by_fields_or_404(
+            async_session, update_data, _detail=_detail, **filter_by
+        )
+
+    async def bulk_update_by_ids(
+        self,
+        async_session: AsyncSession,
+        obj_ids: list[int],
+        update_data: dict[str, Any],
+    ) -> int:
+        """Обновляет несколько объектов по списку ID.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            obj_ids (list[int]): Список ID объектов для обновления
+            update_data (dict[str, Any]): Словарь с данными для обновления
+
+        Returns:
+            int: Количество обновленных объектов
+
+        Example:
+        ```
+            # Обновить несколько пользователей
+            user_ids = [1, 2, 3, 4, 5]
+            updated_count = await crud.bulk_update_by_ids(
+                session,
+                user_ids,
+                {"is_active": False, "deactivated_at": datetime.now()}
+            )
+            print(f"Обновлено {updated_count} пользователей")
+
+            # Обновить выбранные посты
+            post_ids = [10, 15, 20]
+            updated_count = await crud.bulk_update_by_ids(
+                session,
+                post_ids,
+                {"status": "featured", "featured_at": datetime.now()}
+            )
+        ```
+        """
+        if not obj_ids:
+            return 0
+
+        if not update_data:
+            raise ValueError('Необходимо указать данные для обновления')
+
+        stmt = (
+            update(self.model).where(self.model.id.in_(obj_ids)).values(**update_data)
+        )
+        result = await async_session.execute(stmt)
+        await async_session.commit()
+        return result.rowcount or 0
+
+    async def bulk_update_by_field_values(
+        self,
+        async_session: AsyncSession,
+        field_name: str,
+        field_values: list[Any],
+        update_data: dict[str, Any],
+    ) -> int:
+        """Обновляет объекты по списку значений для определенного поля.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            field_name (str): Имя поля для фильтрации
+            field_values (list[Any]): Список значений для обновления
+            update_data (dict[str, Any]): Словарь с данными для обновления
+
+        Returns:
+            int: Количество обновленных объектов
+
+        Example:
+        ```
+            # Обновить пользователей по списку email'ов
+            emails = ["user1@test.com", "user2@test.com", "user3@test.com"]
+            updated_count = await crud.bulk_update_by_field_values(
+                session,
+                "email",
+                emails,
+                {"email_verified": True, "verified_at": datetime.now()}
+            )
+
+            # Обновить посты по slug'ам
+            slugs = ["post-1", "post-2", "important-article"]
+            updated_count = await crud.bulk_update_by_field_values(
+                session,
+                "slug",
+                slugs,
+                {"is_featured": True}
+            )
+
+            # Обновить файлы по именам
+            filenames = ["file1.txt", "file2.txt", "document.pdf"]
+            updated_count = await crud.bulk_update_by_field_values(
+                session,
+                "filename",
+                filenames,
+                {"is_processed": True, "processed_at": datetime.now()}
+            )
+        ```
+        """
+        if not field_values:
+            return 0
+
+        if not update_data:
+            raise ValueError('Необходимо указать данные для обновления')
+
+        if not hasattr(self.model, field_name):
+            raise AttributeError(
+                f"Поле '{field_name}' не существует в модели {self.model.__name__}"
+            )
+
+        field = getattr(self.model, field_name)
+        stmt = update(self.model).where(field.in_(field_values)).values(**update_data)
+        result = await async_session.execute(stmt)
+        await async_session.commit()
+        return result.rowcount or 0
+
+    async def bulk_update_all_by_fields(
+        self,
+        async_session: AsyncSession,
+        update_data: dict[str, Any],
+        batch_size: int = 1000,
+        **filter_by: Any,
+    ) -> int:
+        """Обновляет все объекты по условиям порциями (для больших таблиц).
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            update_data (dict[str, Any]): Словарь с данными для обновления
+            batch_size (int): Размер порции для обновления
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            int: Общее количество обновленных объектов
+
+        Example:
+        ```
+            # Обновить всех неактивных пользователей порциями
+            total_updated = await crud.bulk_update_all_by_fields(
+                session,
+                {"status": "archived", "archived_at": datetime.now()},
+                batch_size=500,
+                is_active=False
+            )
+            print(f"Обновлено {total_updated} неактивных пользователей")
+
+            # Обновить все непрочитанные уведомления
+            total_updated = await crud.bulk_update_all_by_fields(
+                session,
+                {"expires_at": datetime.now() + timedelta(days=30)},
+                batch_size=2000,
+                is_read=False,
+                type="notification"
+            )
+        ```
+        """
+        if not filter_by:
+            raise ValueError('Необходимо указать условия для обновления')
+
+        if not update_data:
+            raise ValueError('Необходимо указать данные для обновления')
+
+        total_updated = 0
+
+        while True:
+            # Получаем ID записей для обновления (порцию)
+            ids_query = select(self.model.id).filter_by(**filter_by).limit(batch_size)
+            ids_result = await async_session.execute(ids_query)
+            ids_to_update = [row[0] for row in ids_result.fetchall()]
+
+            if not ids_to_update:
+                break
+
+            # Обновляем порцию
+            stmt = (
+                update(self.model)
+                .where(self.model.id.in_(ids_to_update))
+                .values(**update_data)
+            )
+            result = await async_session.execute(stmt)
+            await async_session.commit()
+
+            updated_in_batch = result.rowcount or 0
+            total_updated += updated_in_batch
+
+            # Если обновили меньше чем batch_size, значит закончили
+            if len(ids_to_update) < batch_size:
+                break
+
+        return total_updated
+
     async def delete(
         self,
         async_session: AsyncSession,
         db_obj: SQLAlchemyModel,
     ) -> None:
-        """Удаляет объект. Если нет объекта, будет выброшено исключение.
+        """Удаляет объект по экземпляру объекта.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            db_obj (SQLAlchemyModel): Объект из БД, который будет удален.
+            db_obj (SQLAlchemyModel): Объект из БД, который будет удален
+
+        Example:
+        ```
+            # Получаем объект и удаляем его
+            user = await crud.get(session, id=1)
+            if user:
+                await crud.delete(session, user)
+        ```
         """
         await async_session.delete(db_obj)
         await async_session.commit()
 
-    async def delete_by_id_or_404(
+    async def delete_by_fields(
         self,
         async_session: AsyncSession,
-        obj_id: int,
-        detail: str | None = None,
-    ) -> None:
-        """Удаляет объект по ID.
+        **filter_by: Any,
+    ) -> int:
+        """Удаляет объекты по простым условиям.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            obj_id (int): ИД объекта для удаления
-            detail (str | None): Кастомное сообщение об ошибке если объект не найден
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            int: Количество удаленных объектов
+
+        Example:
+        ```
+            # Удалить пользователя по email
+            deleted_count = await crud.delete_by_fields(
+                session,
+                email="test@example.com",
+            )
+
+            # Удалить всех неактивных пользователей определенной роли
+            deleted_count = await crud.delete_by_fields(
+                session,
+                is_active=False,
+                role="guest"
+            )
+
+            # Удалить все посты пользователя
+            deleted_count = await crud.delete_by_fields(session, user_id=user_id)
+        ```
+        """
+        if not filter_by:
+            raise ValueError('Необходимо указать хотя бы одно поле для удаления')
+
+        stmt = delete(self.model).filter_by(**filter_by)
+        result = await async_session.execute(stmt)
+        await async_session.commit()
+        return result.rowcount or 0
+
+    async def delete_by_fields_or_404(
+        self,
+        async_session: AsyncSession,
+        *,
+        _detail: str | None = None,
+        **filter_by: Any,
+    ) -> int:
+        """Удаляет объекты по простым условиям или возвращает 404 ошибку.
+
+        Args:
+            async_session (AsyncSession): Асинхронная сессия
+            _detail (str | None): Кастомное сообщение об ошибке
+            **filter_by (Any): Именованные аргументы для фильтрации
+
+        Returns:
+            int: Количество удаленных объектов (больше 0)
 
         Raises:
-            HTTPException: 404 если объект не найден
-        """
-        db_obj = await self.get_or_404(async_session, obj_id, detail)
-        await self.delete(async_session, db_obj)
+            HTTPException: 404 если объекты не найдены
 
-    async def bulk_delete(
+        Example:
+        ```
+            # Удалить пользователя по email (ошибка если не найден)
+            deleted_count = await crud.delete_by_fields_or_404(
+                session,
+                email="test@example.com"
+            )
+
+            # С кастомной ошибкой
+            deleted_count = await crud.delete_by_fields_or_404(
+                session,
+                _detail="Пользователь для удаления не найден",
+                email="test@example.com"
+            )
+        ```
+        """
+        deleted_count = await self.delete_by_fields(async_session, **filter_by)
+
+        if deleted_count == 0:
+            if _detail:
+                error_detail = _detail
+            else:
+                filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                filter_str = ', '.join(filter_parts)
+                error_detail = (
+                    f"No {self.model.__name__} found to delete with {filter_str}"
+                )
+
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return deleted_count
+
+    async def delete_by_condition(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+    ) -> int:
+        """Удаляет объекты по сложным условиям.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+
+        Returns:
+            int: Количество удаленных объектов
+
+        Example:
+        ```
+            # Удалить пользователей старше 65 или неактивных
+            from sqlalchemy import or_
+
+            deleted_count = await crud.delete_by_condition(
+                session,
+                or_(User.age > 65, User.is_active == False)
+            )
+
+            # Удалить старые посты
+            from datetime import datetime, timedelta
+
+            deleted_count = await crud.delete_by_condition(
+                session,
+                Post.created_at < datetime.now() - timedelta(days=365),
+                Post.published == False
+            )
+
+            # Удалить временные файлы
+            deleted_count = await crud.delete_by_condition(
+                session,
+                File.is_temporary == True,
+                File.created_at < datetime.now() - timedelta(hours=1)
+            )
+        ```
+        """
+        if not conditions:
+            raise ValueError('Необходимо указать хотя бы одно условие для удаления')
+
+        stmt = delete(self.model).filter(*conditions)
+        result = await async_session.execute(stmt)
+        await async_session.commit()
+        return result.rowcount or 0
+
+    async def delete_by_condition_or_404(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+        _detail: str | None = None,
+    ) -> int:
+        """Удаляет объекты по сложным условиям или возвращает 404 ошибку.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+            _detail: Кастомное сообщение об ошибке
+
+        Returns:
+            int: Количество удаленных объектов (больше 0)
+
+        Raises:
+            HTTPException: 404 если объекты не найдены
+
+        Example:
+        ```
+            # Удалить неактивных пользователей (ошибка если таких нет)
+            deleted_count = await crud.delete_by_condition_or_404(
+                session,
+                User.is_active == False,
+                User.last_login < datetime.now() - timedelta(days=30)
+            )
+
+            # С кастомной ошибкой
+            deleted_count = await crud.delete_by_condition_or_404(
+                session,
+                Post.status == "draft",
+                Post.created_at < datetime.now() - timedelta(days=7),
+                _detail="Нет черновиков для удаления"
+            )
+        ```
+        """
+        deleted_count = await self.delete_by_condition(async_session, *conditions)
+
+        if deleted_count == 0:
+            error_detail = (
+                _detail
+                or f"No {self.model.__name__} found to delete matching conditions"
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return deleted_count
+
+    async def bulk_delete_by_ids(
         self,
         async_session: AsyncSession,
         obj_ids: list[int],
@@ -257,6 +1664,18 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         Returns:
             int: Количество удаленных объектов
+
+        Example:
+        ```
+            # Удалить несколько пользователей
+            user_ids = [1, 2, 3, 4, 5]
+            deleted_count = await crud.bulk_delete_by_ids(session, user_ids)
+            print(f"Удалено {deleted_count} пользователей")
+
+            # Удалить выбранные посты
+            post_ids = [10, 15, 20]
+            deleted_count = await crud.bulk_delete_by_ids(session, post_ids)
+        ```
         """
         if not obj_ids:
             return 0
@@ -264,73 +1683,194 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         stmt = delete(self.model).where(self.model.id.in_(obj_ids))
         result = await async_session.execute(stmt)
         await async_session.commit()
-        return result.rowcount
+        return result.rowcount or 0
 
-    async def get_by_attribute(
+    async def bulk_delete_by_field_values(
         self,
         async_session: AsyncSession,
-        attr_name: str,
-        attr_value: Any,
-    ) -> SQLAlchemyModel | None:
-        """Получает объект по атрибуту
+        field_name: str,
+        field_values: list[Any],
+    ) -> int:
+        """Удаляет объекты по списку значений для определенного поля.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            attr_name (str): Имя аттрибута, по которому будет происходить поиск
-            attr_value (Any): Значение атрибута, по которому будет происходить поиск
-
-        Raises:
-            AttributeError: Если атрибута нет в модели
-            ValueError: Если невозможно выполнить запрос
+            field_name (str): Имя поля для фильтрации
+            field_values (list[Any]): Список значений для удаления
 
         Returns:
-            SQLAlchemyModel | None: Найденный объект или None, если объект не найден
+            int: Количество удаленных объектов
+
+        Example:
+        ```
+            # Удалить пользователей по списку email'ов
+            emails = ["user1@test.com", "user2@test.com", "user3@test.com"]
+            deleted_count = await crud.bulk_delete_by_field_values(
+                session,
+                "email",
+                emails
+            )
+
+            # Удалить посты по slug'ам
+            slugs = ["old-post-1", "old-post-2", "outdated-article"]
+            deleted_count = await crud.bulk_delete_by_field_values(
+                session,
+                "slug",
+                slugs
+            )
+
+            # Удалить файлы по именам
+            filenames = ["temp1.txt", "temp2.txt", "cache.dat"]
+            deleted_count = await crud.bulk_delete_by_field_values(
+                session,
+                "filename",
+                filenames
+            )
+        ```
         """
-        if not hasattr(self.model, attr_name):
+        if not field_values:
+            return 0
+
+        if not hasattr(self.model, field_name):
             raise AttributeError(
-                f"Атрибут '{attr_name}' не существует в модели {self.model.__name__}"
+                f"Поле '{field_name}' не существует в модели {self.model.__name__}"
             )
 
-        try:
-            attr = getattr(self.model, attr_name)
-            db_obj = await async_session.execute(
-                select(self.model).where(attr == attr_value)
-            )
-            return db_obj.scalars().first()
-        except InvalidRequestError as e:
-            raise ValueError(
-                f"Невозможно выполнить запрос с атрибутом '{attr_name}': {str(e)}"
-            )
+        field = getattr(self.model, field_name)
+        stmt = delete(self.model).where(field.in_(field_values))
+        result = await async_session.execute(stmt)
+        await async_session.commit()
+        return result.rowcount or 0
 
-    async def get_by_attribute_or_404(
+    async def bulk_delete_all_by_fields(
         self,
         async_session: AsyncSession,
-        attr_name: str,
-        attr_value: Any,
-        detail: str | None = None,
-    ) -> SQLAlchemyModel:
-        """Получает объект по атрибуту или возвращает 404 ошибку.
+        batch_size: int = 1000,
+        **filter_by: Any,
+    ) -> int:
+        """Удаляет все объекты по условиям порциями (для больших таблиц).
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            attr_name (str): Имя аттрибута, по которому будет происходить поиск
-            attr_value (Any): Значение атрибута, по которому будет происходить поиск
-            detail (str | None): Кастомное сообщение об ошибке
+            batch_size (int): Размер порции для удаления
+            **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
-            SQLAlchemyModel: Найденный объект
+            int: Общее количество удаленных объектов
 
-        Raises:
-            HTTPException: 404 если объект не найден
+        Example:
+        ```
+            # Удалить всех неактивных пользователей порциями
+            total_deleted = await crud.bulk_delete_all_by_fields(
+                session,
+                batch_size=500,
+                is_active=False
+            )
+            print(f"Удалено {total_deleted} неактивных пользователей")
+
+            # Удалить все старые логи
+            from datetime import datetime, timedelta
+            cutoff_date = datetime.now() - timedelta(days=30)
+
+            # Для этого случая нужно использовать delete_by_condition
+            total_deleted = await crud.delete_by_condition(
+                session,
+                Log.created_at < cutoff_date
+            )
+        ```
         """
-        db_obj = await self.get_by_attribute(async_session, attr_name, attr_value)
-        if not db_obj:
-            error_detail = (
-                detail
-                or f"{self.model.__name__} with {attr_name}={attr_value} not found"
+        if not filter_by:
+            raise ValueError('Необходимо указать условия для удаления')
+
+        total_deleted = 0
+
+        while True:
+            # Получаем ID записей для удаления (порцию)
+            ids_query = select(self.model.id).filter_by(**filter_by).limit(batch_size)
+            ids_result = await async_session.execute(ids_query)
+            ids_to_delete = [row[0] for row in ids_result.fetchall()]
+
+            if not ids_to_delete:
+                # Больше нет записей для удаления
+                break
+
+            # Удаляем порцию по ID
+            stmt = delete(self.model).where(self.model.id.in_(ids_to_delete))
+            result = await async_session.execute(stmt)
+            await async_session.commit()
+
+            deleted_in_batch = result.rowcount or 0
+            total_deleted += deleted_in_batch
+
+            # Если получили меньше чем batch_size, значит это была последняя порция
+            if len(ids_to_delete) < batch_size:
+                break
+
+        return total_deleted
+
+    async def bulk_delete_all_by_condition(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+        batch_size: int = 1000,
+    ) -> int:
+        """Удаляет все объекты по сложным условиям порциями.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: Условия для фильтрации
+            batch_size: Размер порции для удаления
+
+        Returns:
+            int: Общее количество удаленных объектов
+
+        Example:
+        ```
+            # Удалить старые записи порциями
+            from datetime import datetime, timedelta
+
+            total_deleted = await crud.bulk_delete_all_by_condition(
+                session,
+                Log.created_at < datetime.now() - timedelta(days=30),
+                Log.level == "DEBUG",
+                batch_size=2000
             )
-            raise HTTPException(
-                status_code=HTTPStatus.NOT_FOUND,
-                detail=error_detail,
+
+            # Удалить неактивных пользователей с дополнительными условиями
+            total_deleted = await crud.bulk_delete_all_by_condition(
+                session,
+                User.is_active == False,
+                User.last_login < datetime.now() - timedelta(days=90),
+                or_(User.email.ilike("%temp%"), User.username.ilike("%test%")),
+                batch_size=500
             )
-        return db_obj
+        ```
+        """
+        if not conditions:
+            raise ValueError('Необходимо указать условия для удаления')
+
+        total_deleted = 0
+
+        while True:
+            # Получаем ID записей для удаления (порцию)
+            ids_query = select(self.model.id).filter(*conditions).limit(batch_size)
+            ids_result = await async_session.execute(ids_query)
+            ids_to_delete = [row[0] for row in ids_result.fetchall()]
+
+            if not ids_to_delete:
+                # Больше нет записей для удаления
+                break
+
+            # Удаляем порцию по ID
+            stmt = delete(self.model).where(self.model.id.in_(ids_to_delete))
+            result = await async_session.execute(stmt)
+            await async_session.commit()
+
+            deleted_in_batch = result.rowcount or 0
+            total_deleted += deleted_in_batch
+
+            # Если получили меньше чем batch_size, значит это была последняя порция
+            if len(ids_to_delete) < batch_size:
+                break
+
+        return total_deleted
