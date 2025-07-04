@@ -41,7 +41,7 @@ class Settings(BaseSettings):
         extra='allow',
     )
 
-    db: DB = DB()
+    test_db: DB = DB()
 
 
 settings = Settings()

@@ -2,18 +2,18 @@ from typing import AsyncGenerator
 
 import pytest
 from fastapi.testclient import TestClient
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
 from app.core.db import Base, get_async_session
 from app.main import app
 from tests.config import settings
 
-engine = create_async_engine(settings.db.url, poolclass=NullPool)
+engine_test = create_async_engine(settings.test_db.url, poolclass=NullPool)
 
 AsyncSessionLocal = async_sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
+    bind=engine_test, class_=AsyncSession, expire_on_commit=False
 )
 
 
@@ -26,12 +26,12 @@ app.dependency_overrides[get_async_session] = override_get_async_session
 
 
 @pytest.fixture(autouse=True, scope='session')
-async def prepare_database():
-    """Create and drop test database tables."""
-    async with engine.begin() as conn:
+@pytest.mark.exclude_from_ci
+async def prepare_database() -> AsyncGenerator[None, None]:
+    async with engine_test.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    async with engine.begin() as conn:
+    async with engine_test.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
 
@@ -44,7 +44,8 @@ def client() -> TestClient:
 @pytest.fixture(scope='session')
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """Async HTTP client for testing."""
-    async with AsyncClient(app=app, base_url='http://test') as client:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
         yield client
 
 
