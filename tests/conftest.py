@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.db import Base, get_async_session
 from app.main import app
 from tests.config import settings
+from tests.fixtures.crud.base import created_objects, crud  # noqa: F401
 
 engine_test = create_async_engine(settings.test_db.url, poolclass=NullPool)
 
@@ -25,7 +26,7 @@ async def override_get_async_session() -> AsyncGenerator[AsyncSession, None]:
 app.dependency_overrides[get_async_session] = override_get_async_session
 
 
-@pytest.fixture(autouse=True, scope='session')
+@pytest.fixture(autouse=True)
 @pytest.mark.exclude_from_ci
 async def prepare_database() -> AsyncGenerator[None, None]:
     async with engine_test.begin() as conn:
@@ -35,13 +36,13 @@ async def prepare_database() -> AsyncGenerator[None, None]:
         await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture
 def client() -> TestClient:
     """Sync HTTP client for testing."""
     return TestClient(app)
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """Async HTTP client for testing."""
     transport = ASGITransport(app=app)

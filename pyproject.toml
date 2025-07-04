@@ -54,7 +54,7 @@ line-length = 88
 python_version = "3.13"
 mypy_path = "$MYPY_CONFIG_FILE_DIR/app/"
 
-exclude = ["alembic/*", "venv/*"]
+exclude = ["alembic/*", "venv/*", "tests/*"]
 plugins = ["pydantic.mypy"]
 
 strict = true
@@ -65,7 +65,7 @@ strict = true
 ##########################################
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = [".", "app"]
 filterwarnings = ["ignore::DeprecationWarning"]

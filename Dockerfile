@@ -17,6 +17,7 @@ ENV PATH="/root/.local/bin/:$PATH"
 
 COPY . .
 
+# Установка зависимостей
 RUN uv sync --frozen --no-install-project --no-dev
 
 EXPOSE 8000

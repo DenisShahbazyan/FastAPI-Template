@@ -3,7 +3,11 @@ from uuid import uuid4
 
 from httpx import AsyncClient
 
-from tests.user import auth_user_request, refresh_token_request, register_user_request
+from tests.utils.user import (
+    auth_user_request,
+    refresh_token_request,
+    register_user_request,
+)
 
 
 async def test_register_user_success(async_client: AsyncClient) -> None:
