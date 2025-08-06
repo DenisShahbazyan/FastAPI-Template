@@ -4,9 +4,8 @@ from typing import Any, Generic, Sequence, Type, TypeVar
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, delete
+from sqlalchemy import ColumnElement, delete, func, select, update
 from sqlalchemy import exists as sql_exists
-from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import Base
@@ -113,9 +112,9 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                 error_detail = _detail
             else:
                 # Формируем красивое сообщение об ошибке
-                filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
                 filter_str = ', '.join(filter_parts)
-                error_detail = f"{self.model.__name__} with {filter_str} not found"
+                error_detail = f'{self.model.__name__} with {filter_str} not found'
 
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -191,7 +190,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         db_obj = await self.get_by_condition(async_session, *conditions)
 
         if not db_obj:
-            error_detail = _detail or f"{self.model.__name__} not found"
+            error_detail = _detail or f'{self.model.__name__} not found'
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=error_detail,
@@ -325,11 +324,11 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             else:
                 # Формируем красивое сообщение об ошибке
                 if filter_by:
-                    filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                    filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
                     filter_str = ', '.join(filter_parts)
-                    error_detail = f"No {self.model.__name__} found with {filter_str}"
+                    error_detail = f'No {self.model.__name__} found with {filter_str}'
                 else:
-                    error_detail = f"No {self.model.__name__} found"
+                    error_detail = f'No {self.model.__name__} found'
 
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -474,7 +473,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         if not db_objs:
             error_detail = (
-                _detail or f"No {self.model.__name__} found matching conditions"
+                _detail or f'No {self.model.__name__} found matching conditions'
             )
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -1168,10 +1167,10 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if _detail:
                 error_detail = _detail
             else:
-                filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
                 filter_str = ', '.join(filter_parts)
                 error_detail = (
-                    f"No {self.model.__name__} found to update with {filter_str}"
+                    f'No {self.model.__name__} found to update with {filter_str}'
                 )
 
             raise HTTPException(
@@ -1286,7 +1285,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         if updated_count == 0:
             error_detail = (
                 _detail
-                or f"No {self.model.__name__} found to update matching conditions"
+                or f'No {self.model.__name__} found to update matching conditions'
             )
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -1902,10 +1901,10 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if _detail:
                 error_detail = _detail
             else:
-                filter_parts = [f"{k}={v}" for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
                 filter_str = ', '.join(filter_parts)
                 error_detail = (
-                    f"No {self.model.__name__} found to delete with {filter_str}"
+                    f'No {self.model.__name__} found to delete with {filter_str}'
                 )
 
             raise HTTPException(
@@ -2006,7 +2005,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         if deleted_count == 0:
             error_detail = (
                 _detail
-                or f"No {self.model.__name__} found to delete matching conditions"
+                or f'No {self.model.__name__} found to delete matching conditions'
             )
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -2312,7 +2311,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if not hasattr(db_obj, deleted_at_field):
                 raise AttributeError(
                     f"Поле '{deleted_at_field}' не существует в модели "
-                    f"{self.model.__name__}"
+                    f'{self.model.__name__}'
                 )
             setattr(db_obj, deleted_at_field, datetime.now())
 
@@ -2321,7 +2320,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if not hasattr(db_obj, deleted_by_field):
                 raise AttributeError(
                     f"Поле '{deleted_by_field}' не существует в модели "
-                    f"{self.model.__name__}"
+                    f'{self.model.__name__}'
                 )
             setattr(db_obj, deleted_by_field, user_id)
 
@@ -2392,7 +2391,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if not hasattr(self.model, deleted_at_field):
                 raise AttributeError(
                     f"Поле '{deleted_at_field}' не существует в модели "
-                    f"{self.model.__name__}"
+                    f'{self.model.__name__}'
                 )
             update_data[deleted_at_field] = datetime.now()
 
@@ -2400,7 +2399,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if not hasattr(self.model, deleted_by_field):
                 raise AttributeError(
                     f"Поле '{deleted_by_field}' не существует в модели "
-                    f"{self.model.__name__}"
+                    f'{self.model.__name__}'
                 )
             update_data[deleted_by_field] = user_id
 
@@ -2476,7 +2475,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if not hasattr(self.model, deleted_at_field):
                 raise AttributeError(
                     f"Поле '{deleted_at_field}' не существует в модели "
-                    f"{self.model.__name__}"
+                    f'{self.model.__name__}'
                 )
             update_data[deleted_at_field] = datetime.now()
 
@@ -2484,7 +2483,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             if not hasattr(self.model, deleted_by_field):
                 raise AttributeError(
                     f"Поле '{deleted_by_field}' не существует в модели "
-                    f"{self.model.__name__}"
+                    f'{self.model.__name__}'
                 )
             update_data[deleted_by_field] = user_id
 

@@ -22,7 +22,6 @@ class ExcludeFields(BaseModel):
 
 
 class UserRead(ExcludeFields, schemas.BaseUser[int]):
-
     class Config:
         populate_by_name = True
 
