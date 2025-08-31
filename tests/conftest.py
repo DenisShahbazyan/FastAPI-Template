@@ -6,8 +6,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.db import Base, get_async_session
+from app.core.db import get_async_session
 from app.main import app
+from app.models.base import Base
 from tests.config import settings
 from tests.fixtures.crud.base import created_objects, crud  # noqa: F401
 

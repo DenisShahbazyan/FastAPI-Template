@@ -8,7 +8,7 @@ from sqlalchemy import ColumnElement, delete, func, select, update
 from sqlalchemy import exists as sql_exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import Base
+from app.models.base import Base
 
 PydanticSchema = TypeVar('PydanticSchema', bound=BaseModel)
 SQLAlchemyModel = TypeVar('SQLAlchemyModel', bound=Base)
