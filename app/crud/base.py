@@ -1023,7 +1023,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                 setattr(db_obj, field, update_data[field])
         async_session.add(db_obj)
         await async_session.flush()
-        await async_session.refresh(db_obj)
         return db_obj
 
     async def update_or_404(
@@ -1707,7 +1706,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
                     async_session.add(existing_obj)
                     await async_session.flush()
-                    await async_session.refresh(existing_obj)
 
                 return existing_obj, False
 
@@ -1721,7 +1719,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                 db_obj = self.model(**obj_data)
                 async_session.add(db_obj)
                 await async_session.flush()
-                await async_session.refresh(db_obj)
 
                 return db_obj, True
 
