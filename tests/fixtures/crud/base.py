@@ -3,7 +3,7 @@ from typing import AsyncGenerator
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.crud.base import CRUDBase
+from app.crud._base import CRUDBase
 from tests.utils.crud.base import ModelForBaseCRUD
 
 
