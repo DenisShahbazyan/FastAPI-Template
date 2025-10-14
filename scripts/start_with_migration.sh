@@ -7,10 +7,10 @@ wait_for_db() {
     local wait_seconds=5
 
     # Получаем переменные окружения или используем значения по умолчанию
-    local host=${DB_HOST:-db}
-    local port=${DB_PORT:-5432}
-    local user=${DB_USER:-postgres}
-    local db_name=${DB_NAME:-postgres}
+    local host=${DB__HOST:-db}
+    local port=${DB__PORT:-5432}
+    local user=${DB__USER:-postgres}
+    local db_name=${DB__NAME:-postgres}
 
     while [ $count -lt $max_retries ]; do
         pg_isready -h $host -p $port -U $user -d $db_name -t 1 > /dev/null 2>&1
