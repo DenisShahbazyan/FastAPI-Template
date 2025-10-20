@@ -936,22 +936,43 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         obj_in: PydanticSchema,
-        user_id: int | None = None,
+        **extra_fields: Any,
     ) -> SQLAlchemyModel:
         """Создает новый объект.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             obj_in (PydanticSchema): Pydantic объект, который будет создан.
-            user_id (int | None, optional): ИД пользователя, к которому будет привязан
-                объект. По умолчанию None.
+            **extra_fields (Any): Дополнительные поля для привязки
+                (user_id, master_id, и т.д.)
 
         Returns:
             SQLAlchemyModel: Созданный объект
+
+        Example:
+        ```
+            # Простое создание
+            user = await crud.create(session, user_data)
+
+            # С дополнительными полями
+            certificate = await crud.create(
+                session,
+                certificate_data,
+                master_id=master.id
+            )
+
+            # С несколькими дополнительными полями
+            post = await crud.create(
+                session,
+                post_data,
+                user_id=user.id,
+                category_id=category.id
+            )
+        ```
         """
         obj_in_data = obj_in.model_dump()
-        if user_id is not None:
-            obj_in_data['user_id'] = user_id
+        # Добавляем все дополнительные поля
+        obj_in_data.update(extra_fields)
         db_obj = self.model(**obj_in_data)
         async_session.add(db_obj)
         await async_session.flush()
@@ -962,23 +983,41 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         objects_in: list[PydanticSchema],
-        user_id: int | None = None,
+        **extra_fields: Any,
     ) -> list[SQLAlchemyModel]:
         """Создает несколько объектов за один раз.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             objects_in (list[PydanticSchema]): Список Pydantic объектов для создания
-            user_id (int | None): ИД пользователя для привязки объектов
+            **extra_fields (Any): Дополнительные поля для привязки
+                (user_id, master_id, и т.д.)
 
         Returns:
             list[SQLAlchemyModel]: Список созданных объектов
+
+        Example:
+        ```
+            # Массовое создание с общими полями
+            certificates = await crud.bulk_create(
+                session,
+                [cert1_data, cert2_data, cert3_data],
+                master_id=master.id
+            )
+
+            # С несколькими дополнительными полями
+            posts = await crud.bulk_create(
+                session,
+                posts_data,
+                user_id=user.id,
+                status="draft"
+            )
+        ```
         """
         db_objects = []
         for obj_in in objects_in:
             obj_in_data = obj_in.model_dump()
-            if user_id is not None:
-                obj_in_data['user_id'] = user_id
+            obj_in_data.update(extra_fields)
             db_obj = self.model(**obj_in_data)
             db_objects.append(db_obj)
 
