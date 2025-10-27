@@ -627,6 +627,55 @@ class TestCRUDExists:
             await crud.exists(async_session)
 
 
+class TestCRUDExistsOr404:
+    """Тесты для метода exists_or_404."""
+
+    async def test_exists_or_404_true(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+        created_objects: list[ModelForBaseCRUD],
+    ) -> None:
+        """Тест успешной проверки существования."""
+        test_obj = created_objects[0]
+
+        result = await crud.exists_or_404(async_session, email=test_obj.email)
+        assert result is True
+
+    async def test_exists_or_404_not_found_raises(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+    ) -> None:
+        """Тест 404 ошибки когда объект не найден."""
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.exists_or_404(async_session, email='nonexistent@example.com')
+
+        assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
+        assert (
+            'ModelForBaseCRUD with email=nonexistent@example.com not found'
+            in exc_info.value.detail
+        )
+
+    async def test_exists_or_404_custom_detail(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+    ) -> None:
+        """Тест кастомного сообщения об ошибке."""
+        custom_detail = 'Пользователь не найден'
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.exists_or_404(
+                async_session,
+                _detail=custom_detail,
+                email='nonexistent@example.com',
+            )
+
+        assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
+        assert exc_info.value.detail == custom_detail
+
+
 class TestCRUDExistsByCondition:
     """Тесты для метода exists_by_condition."""
 
@@ -666,6 +715,72 @@ class TestCRUDExistsByCondition:
         )
 
         assert exists is False
+
+
+class TestCRUDExistsByConditionOr404:
+    """Тесты для метода exists_by_condition_or_404."""
+
+    async def test_exists_by_condition_or_404_true(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+        created_objects: list[ModelForBaseCRUD],
+    ) -> None:
+        """Тест успешной проверки по условиям."""
+        from sqlalchemy import and_
+
+        result = await crud.exists_by_condition_or_404(
+            async_session,
+            and_(
+                ModelForBaseCRUD.is_active.is_(True),
+                ModelForBaseCRUD.user_id == 1,
+            ),
+        )
+
+        assert result is True
+
+    async def test_exists_by_condition_or_404_not_found_raises(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+    ) -> None:
+        """Тест 404 ошибки когда объект не найден по условиям."""
+        from sqlalchemy import and_
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.exists_by_condition_or_404(
+                async_session,
+                and_(
+                    ModelForBaseCRUD.email == 'nonexistent@example.com',
+                    ModelForBaseCRUD.is_active.is_(True),
+                ),
+            )
+
+        assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
+        assert 'No ModelForBaseCRUD found matching conditions' in exc_info.value.detail
+
+    async def test_exists_by_condition_or_404_custom_detail(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+    ) -> None:
+        """Тест кастомного сообщения об ошибке."""
+        from sqlalchemy import and_
+
+        custom_detail = 'Объект не найден по условиям'
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.exists_by_condition_or_404(
+                async_session,
+                and_(
+                    ModelForBaseCRUD.email == 'nonexistent@example.com',
+                    ModelForBaseCRUD.is_active.is_(True),
+                ),
+                _detail=custom_detail,
+            )
+
+        assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
+        assert exc_info.value.detail == custom_detail
 
 
 class TestCRUDGetOrCreate:

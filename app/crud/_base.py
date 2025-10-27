@@ -577,6 +577,43 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         result = await async_session.execute(query)
         return result.scalar()
 
+    async def exists_or_404(
+        self,
+        async_session: AsyncSession,
+        *,
+        _detail: str | None = None,
+        **filter_by: Any,
+    ) -> bool:
+        """Проверяет существование записи по простым условиям или возвращает 404.
+
+        Args:
+            async_session: Асинхронная сессия
+            _detail: Кастомное сообщение об ошибке
+            **filter_by: Параметры для фильтрации
+
+        Returns:
+            bool: True если запись существует
+
+        Raises:
+            HTTPException: 404 если запись не найдена
+        """
+        exists_result = await self.exists(async_session, **filter_by)
+
+        if not exists_result:
+            if _detail:
+                error_detail = _detail
+            else:
+                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                filter_str = ', '.join(filter_parts)
+                error_detail = f'{self.model.__name__} with {filter_str} not found'
+
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return True
+
     async def exists_by_condition(
         self,
         async_session: AsyncSession,
@@ -614,6 +651,40 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         query = select(sql_exists(subquery))
         result = await async_session.execute(query)
         return result.scalar() or False
+
+    async def exists_by_condition_or_404(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+        _detail: str | None = None,
+    ) -> bool:
+        """Проверяет существование записи по сложным условиям или возвращает 404.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: SQLAlchemy условия
+            _detail: Кастомное сообщение об ошибке
+
+        Returns:
+            bool: True если запись существует
+
+        Raises:
+            HTTPException: 404 если запись не найдена
+        """
+        exists_result = await self.exists_by_condition(async_session, *conditions)
+
+        if not exists_result:
+            if _detail:
+                error_detail = _detail
+            else:
+                error_detail = f'No {self.model.__name__} found matching conditions'
+
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=error_detail,
+            )
+
+        return True
 
     async def get_or_create(
         self,
