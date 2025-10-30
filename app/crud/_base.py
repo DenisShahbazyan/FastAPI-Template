@@ -686,6 +686,115 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         return True
 
+    async def not_exists_or_409(
+        self,
+        async_session: AsyncSession,
+        *,
+        _detail: str | None = None,
+        **filter_by: Any,
+    ) -> bool:
+        """Проверяет отсутствие записи по простым условиям или возвращает 409 Conflict.
+
+        Args:
+            async_session: Асинхронная сессия
+            _detail: Кастомное сообщение об ошибке
+            **filter_by: Параметры для фильтрации
+
+        Returns:
+            bool: True если запись не существует
+
+        Raises:
+            HTTPException: 409 если запись уже существует
+
+        Example:
+        ```
+            # Проверка что email свободен перед регистрацией
+            await crud.not_exists_or_409(session, email="test@test.com")
+
+            # С кастомной ошибкой
+            await crud.not_exists_or_409(
+                session,
+                _detail="Пользователь с таким email уже зарегистрирован",
+                email="test@test.com"
+            )
+
+            # Проверка нескольких полей
+            await crud.not_exists_or_409(
+                session,
+                username="admin",
+                email="admin@test.com"
+            )
+        ```
+        """
+        exists_result = await self.exists(async_session, **filter_by)
+
+        if exists_result:
+            if _detail:
+                error_detail = _detail
+            else:
+                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                filter_str = ', '.join(filter_parts)
+                error_detail = f'{self.model.__name__} with {filter_str} already exists'
+
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=error_detail,
+            )
+
+        return True
+
+    async def not_exists_by_condition_or_409(
+        self,
+        async_session: AsyncSession,
+        *conditions: ColumnElement[bool],
+        _detail: str | None = None,
+    ) -> bool:
+        """Проверяет отсутствие записи по сложным условиям или возвращает 409 Conflict.
+
+        Args:
+            async_session: Асинхронная сессия
+            *conditions: SQLAlchemy условия
+            _detail: Кастомное сообщение об ошибке
+
+        Returns:
+            bool: True если запись не существует
+
+        Raises:
+            HTTPException: 409 если запись уже существует
+
+        Example:
+        ```
+            from sqlalchemy import or_
+
+            # Проверка что email или username свободны
+            await crud.not_exists_by_condition_or_409(
+                session,
+                or_(User.email == "test@test.com", User.username == "testuser")
+            )
+
+            # С кастомной ошибкой
+            await crud.not_exists_by_condition_or_409(
+                session,
+                or_(User.email == email, User.username == username),
+                _detail="Пользователь с таким email или username уже существует"
+            )
+        ```
+        """
+        exists_result = await self.exists_by_condition(async_session, *conditions)
+
+        if exists_result:
+            error_detail = (
+                _detail
+                or f'{self.model.__name__} matching specified conditions already exists'
+            )
+
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=error_detail,
+            )
+
+        return True
+
     async def get_or_create(
         self,
         async_session: AsyncSession,

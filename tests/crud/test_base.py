@@ -783,6 +783,140 @@ class TestCRUDExistsByConditionOr404:
         assert exc_info.value.detail == custom_detail
 
 
+class TestCRUDNotExistsOr409:
+    """Тесты для метода not_exists_or_409."""
+
+    async def test_not_exists_or_409_true(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+    ) -> None:
+        """Тест успешной проверки отсутствия объекта."""
+        result = await crud.not_exists_or_409(
+            async_session, email='new_unique@example.com'
+        )
+        assert result is True
+
+    async def test_not_exists_or_409_conflict_raises(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+        created_objects: list[ModelForBaseCRUD],
+    ) -> None:
+        """Тест 409 ошибки когда объект уже существует."""
+        test_obj = created_objects[0]
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.not_exists_or_409(async_session, email=test_obj.email)
+
+        assert exc_info.value.status_code == HTTPStatus.CONFLICT
+        assert 'already exists' in exc_info.value.detail
+
+    async def test_not_exists_or_409_custom_detail(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+        created_objects: list[ModelForBaseCRUD],
+    ) -> None:
+        """Тест кастомного сообщения об ошибке."""
+        test_obj = created_objects[0]
+        custom_detail = 'Пользователь с таким email уже зарегистрирован'
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.not_exists_or_409(
+                async_session, _detail=custom_detail, email=test_obj.email
+            )
+
+        assert exc_info.value.status_code == HTTPStatus.CONFLICT
+        assert exc_info.value.detail == custom_detail
+
+    async def test_not_exists_or_409_multiple_fields(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+        created_objects: list[ModelForBaseCRUD],
+    ) -> None:
+        """Тест проверки нескольких полей одновременно."""
+        test_obj = created_objects[0]
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.not_exists_or_409(
+                async_session, email=test_obj.email, user_id=test_obj.user_id
+            )
+
+        assert exc_info.value.status_code == HTTPStatus.CONFLICT
+        assert f'email={test_obj.email}' in exc_info.value.detail
+        assert f'user_id={test_obj.user_id}' in exc_info.value.detail
+
+
+class TestCRUDNotExistsByConditionOr409:
+    """Тесты для метода not_exists_by_condition_or_409."""
+
+    async def test_not_exists_by_condition_or_409_true(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+    ) -> None:
+        """Тест успешной проверки отсутствия по условиям."""
+        from sqlalchemy import and_
+
+        result = await crud.not_exists_by_condition_or_409(
+            async_session,
+            and_(
+                ModelForBaseCRUD.email == 'nonexistent@example.com',
+                ModelForBaseCRUD.is_active.is_(True),
+            ),
+        )
+
+        assert result is True
+
+    async def test_not_exists_by_condition_or_409_conflict_raises(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+        created_objects: list[ModelForBaseCRUD],
+    ) -> None:
+        """Тест 409 ошибки когда объект существует по условиям."""
+        from sqlalchemy import and_
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.not_exists_by_condition_or_409(
+                async_session,
+                and_(
+                    ModelForBaseCRUD.is_active.is_(True),
+                    ModelForBaseCRUD.user_id == 1,
+                ),
+            )
+
+        assert exc_info.value.status_code == HTTPStatus.CONFLICT
+        assert 'already exists' in exc_info.value.detail
+
+    async def test_not_exists_by_condition_or_409_custom_detail(
+        self,
+        async_session: AsyncSession,
+        crud: CRUDBase[ModelForBaseCRUD],
+        created_objects: list[ModelForBaseCRUD],
+    ) -> None:
+        """Тест кастомного сообщения об ошибке."""
+        from sqlalchemy import or_
+
+        test_obj = created_objects[0]
+        custom_detail = 'Объект с таким email или user_id уже существует'
+
+        with pytest.raises(HTTPException) as exc_info:
+            await crud.not_exists_by_condition_or_409(
+                async_session,
+                or_(
+                    ModelForBaseCRUD.email == test_obj.email,
+                    ModelForBaseCRUD.user_id == test_obj.user_id,
+                ),
+                _detail=custom_detail,
+            )
+
+        assert exc_info.value.status_code == HTTPStatus.CONFLICT
+        assert exc_info.value.detail == custom_detail
+
+
 class TestCRUDGetOrCreate:
     """Тесты для метода get_or_create."""
 
