@@ -2,7 +2,7 @@ from fastapi_users import schemas
 from pydantic import BaseModel, Field
 
 
-class LoginRequest(BaseModel):
+class LoginRequestSchema(BaseModel):
     username: str = Field(alias='email')
     password: str
 
@@ -10,7 +10,7 @@ class LoginRequest(BaseModel):
         populate_by_name = True
 
 
-class LoginResponse(BaseModel):
+class LoginResponseSchema(BaseModel):
     access_token: str
     token_type: str
 
@@ -21,9 +21,9 @@ class ExcludeFields(BaseModel):
     is_verified: bool = Field(exclude=True, default=False)
 
 
-class UserRead(ExcludeFields, schemas.BaseUser[int]):
+class UserReadSchema(ExcludeFields, schemas.BaseUser[int]):
     class Config:
         populate_by_name = True
 
 
-class UserCreate(schemas.BaseUserCreate): ...
+class UserCreateSchema(schemas.BaseUserCreate): ...

@@ -16,7 +16,12 @@ from app.core.auth.backend import (
 )
 from app.core.auth.users import current_user, fastapi_users
 from app.models.user import User
-from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserRead
+from app.schemas.user import (
+    LoginRequestSchema,
+    LoginResponseSchema,
+    UserCreateSchema,
+    UserReadSchema,
+)
 
 router = APIRouter()
 
@@ -34,7 +39,7 @@ router.include_router(
 )
 
 router.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
+    fastapi_users.get_register_router(UserReadSchema, UserCreateSchema),
     prefix='/auth',
     tags=['auth'],
 )
@@ -53,7 +58,7 @@ def get_auth_router(
     @router.post('/login')
     async def login(
         request: Request,
-        credentials: LoginRequest,
+        credentials: LoginRequestSchema,
         user_manager: BaseUserManager[User, int] = Depends(get_user_manager),
         access_strategy: JWTStrategy[User, int] = Depends(get_access_jwt_strategy),
         refresh_strategy: JWTStrategy[User, int] = Depends(get_refresh_jwt_strategy),
@@ -102,7 +107,7 @@ async def refresh_token(
     user_manager: BaseUserManager[User, int] = Depends(fastapi_users.get_user_manager),
     access_strategy: JWTStrategy[User, int] = Depends(get_access_jwt_strategy),
     refresh_strategy: JWTStrategy[User, int] = Depends(get_refresh_jwt_strategy),
-) -> LoginResponse:
+) -> LoginResponseSchema:
     refresh_token = request.cookies.get('refresh_token')
     if not refresh_token:
         raise HTTPException(
@@ -120,11 +125,11 @@ async def refresh_token(
         )
 
     access_token = await access_strategy.write_token(user)
-    return LoginResponse(access_token=access_token, token_type='bearer')
+    return LoginResponseSchema(access_token=access_token, token_type='bearer')
 
 
 @router.get('/me', tags=['users'])
-async def me(current_user: UserRead = Depends(current_user)) -> UserRead:
+async def me(current_user: UserReadSchema = Depends(current_user)) -> UserReadSchema:
     return current_user
 
 
