@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi_users.authentication import JWTStrategy
 
-from app.api.utils.user import set_refresh_token_cookie
+from app.api.v1.utils.user import set_refresh_token_cookie
 from app.core.config import settings
 from app.models import User
 

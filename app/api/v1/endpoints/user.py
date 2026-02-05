@@ -8,7 +8,10 @@ from fastapi_users.authentication.strategy.jwt import JWTStrategy
 from fastapi_users.manager import BaseUserManager
 from fastapi_users.router.common import ErrorCode
 
-from app.api.utils.user import modify_standard_auth_endpoints, set_refresh_token_cookie
+from app.api.v1.utils.user import (
+    modify_standard_auth_endpoints,
+    set_refresh_token_cookie,
+)
 from app.core.auth.backend import (
     auth_backend,
     get_access_jwt_strategy,
@@ -16,7 +19,7 @@ from app.core.auth.backend import (
 )
 from app.core.auth.users import current_user, fastapi_users
 from app.models.user import User
-from app.schemas.user import (
+from app.schemas.v1.user import (
     LoginRequestSchema,
     LoginResponseSchema,
     UserCreateSchema,

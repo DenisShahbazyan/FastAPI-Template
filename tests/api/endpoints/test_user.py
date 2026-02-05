@@ -71,7 +71,7 @@ async def test_register_missing_password(async_client: AsyncClient) -> None:
         async_client (AsyncClient): Тестовый асинхронный клиент
     """
     response = await async_client.post(
-        url='/auth/register',
+        url='/v1/auth/register',
         json={'email': 'test@example.com'},
     )
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
@@ -217,7 +217,7 @@ async def test_logout_success(async_client: AsyncClient) -> None:
     refresh_token = login_response.cookies.get('refresh_token')
 
     response = await async_client.post(
-        url='/auth/logout',
+        url='/v1/auth/logout',
         headers={'Authorization': f'Bearer {login_response.json()["access_token"]}'},
         cookies={'refresh_token': refresh_token} if refresh_token else None,
     )
@@ -245,14 +245,14 @@ async def test_token_endpoint_success(async_client: AsyncClient) -> None:
     login_response = await auth_user_request(async_client, email)
 
     response = await async_client.get(
-        url='/auth/token',
+        url='/v1/auth/token',
         headers={'Authorization': f'Bearer {login_response.json()["access_token"]}'},
     )
 
     assert response.status_code == HTTPStatus.OK
     assert response.json()
 
-    response = await async_client.get(url='/auth/token')
+    response = await async_client.get(url='/v1/auth/token')
 
     assert response.status_code == HTTPStatus.UNAUTHORIZED
 
@@ -273,7 +273,7 @@ async def test_me_endpoint_success(async_client: AsyncClient) -> None:
     login_response = await auth_user_request(async_client, email)
 
     response = await async_client.get(
-        url='/me',
+        url='/v1/me',
         headers={'Authorization': f'Bearer {login_response.json()["access_token"]}'},
     )
 
@@ -289,6 +289,6 @@ async def test_me_endpoint_no_auth(async_client: AsyncClient) -> None:
     Args:
         async_client (AsyncClient): Тестовый асинхронный клиент
     """
-    response = await async_client.get(url='/me')
+    response = await async_client.get(url='/v1/me')
 
     assert response.status_code == HTTPStatus.UNAUTHORIZED

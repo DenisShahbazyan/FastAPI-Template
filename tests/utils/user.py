@@ -25,7 +25,7 @@ async def register_user_request(
         return_value=None,
     ):
         response = await async_client.post(
-            url='/auth/register',
+            url='/v1/auth/register',
             json={
                 'email': email,
                 'password': password,
@@ -56,7 +56,7 @@ async def auth_user_request(
         return_value='Mocked implementation',
     ):
         response = await async_client.post(
-            url='/auth/login',
+            url='/v1/auth/login',
             json={
                 'email': email,
                 'password': password,
@@ -80,7 +80,7 @@ async def refresh_token_request(
         Response: Ответ от сервера
     """
     response = await async_client.post(
-        url='/auth/refresh',
+        url='/v1/auth/refresh',
         cookies=cookies,
     )
     return response

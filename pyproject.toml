@@ -65,6 +65,13 @@ quote-style = "single"
 docstring-code-format = true
 docstring-code-line-length = "dynamic"
 
+
+##########################################
+#                   Ty                   #
+##########################################
+[tool.ty.rules]
+invalid-argument-type = "ignore"
+
 ##########################################
 #                 PyTest                 #
 ##########################################
@@ -98,9 +105,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "mypy>=1.18.2",
     "pre-commit>=4.3.0",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
     "ruff>=0.14.3",
+    "ty>=0.0.15",
 ]
