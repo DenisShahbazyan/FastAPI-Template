@@ -2,10 +2,14 @@ import os
 from pathlib import Path
 from typing import Self
 
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, PostgresDsn, ValidationInfo, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
+APP_DIR: Path = PROJECT_DIR / 'app'
+STATIC_DIR: Path = PROJECT_DIR / 'static'
 
 
 class DB(BaseModel):
@@ -43,19 +47,27 @@ class JWT(BaseModel):
     REFRESH_TOKEN_LIFETIME_SECONDS: int = 60 * 60 * 24 * 7  # 7 days
 
 
+class Static(BaseModel):
+    DIR: Path = STATIC_DIR
+    URL: str = '/static'
+    DOCS_JS: str = '/static/docs/swagger-ui-bundle.js'
+    DOCS_CSS: str = '/static/docs/swagger-ui.css'
+    REDOC_JS: str = '/static/docs/redoc.standalone.js'
+
+
 def get_env_file(environment: str | None) -> str:
     match environment:
         case 'docker':
-            return os.path.join(BASE_DIR / '.env.docker')
+            return os.path.join(PROJECT_DIR / '.env.docker')
         case _:
-            return os.path.join(BASE_DIR / '.env.local')
+            return os.path.join(PROJECT_DIR / '.env.local')
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(
-            BASE_DIR / '.env.template',
-            BASE_DIR / get_env_file(os.getenv('ENVIRONMENT')),
+            PROJECT_DIR / '.env.template',
+            PROJECT_DIR / get_env_file(os.getenv('ENVIRONMENT')),
         ),
         case_sensitive=False,
         env_nested_delimiter='__',
@@ -63,6 +75,16 @@ class Settings(BaseSettings):
 
     db: DB = DB()
     jwt: JWT = JWT()
+    static: Static = Static()
 
 
 settings = Settings()
+
+
+def mount_static(app: FastAPI) -> None:
+    settings.static.DIR.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        settings.static.URL,
+        StaticFiles(directory=settings.static.DIR),
+        name='static',
+    )
