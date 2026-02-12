@@ -72,6 +72,16 @@ docstring-code-line-length = "dynamic"
 [tool.ty.rules]
 invalid-argument-type = "ignore"
 
+[[tool.ty.overrides]]
+include = ["app/crud/_base.py"]
+
+[tool.ty.overrides.rules]
+possibly-missing-attribute = "ignore"
+unresolved-attribute = "ignore"
+
+[tool.ty.src]
+exclude = ["tests/**"]
+
 ##########################################
 #                 PyTest                 #
 ##########################################
