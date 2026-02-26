@@ -1,4 +1,4 @@
-FROM python:3.13.2-slim
+FROM python:3.14.3-slim
 
 ENV PYTHONUNBUFFERED=1
 
@@ -15,10 +15,11 @@ ADD https://astral.sh/uv/install.sh /uv-installer.sh
 RUN sh /uv-installer.sh && rm /uv-installer.sh
 ENV PATH="/root/.local/bin/:$PATH"
 
-COPY . .
-
-# Установка зависимостей
+# Сначала зависимости — слой кешируется пока lock-файл не меняется
+COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
+
+COPY . .
 
 EXPOSE 8000
 

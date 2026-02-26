@@ -55,20 +55,17 @@ class Static(BaseModel):
     REDOC_JS: str = '/static/docs/redoc.standalone.js'
 
 
-def get_env_file(environment: str | None) -> str:
+def get_env_file(environment: str | None) -> Path:
     match environment:
         case 'docker':
-            return os.path.join(PROJECT_DIR / '.env.docker')
+            return PROJECT_DIR / '.env.docker'
         case _:
-            return os.path.join(PROJECT_DIR / '.env.local')
+            return PROJECT_DIR / '.env.local'
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(
-            PROJECT_DIR / '.env.template',
-            PROJECT_DIR / get_env_file(os.getenv('ENVIRONMENT')),
-        ),
+        env_file=get_env_file(os.getenv('ENVIRONMENT')),
         case_sensitive=False,
         env_nested_delimiter='__',
     )

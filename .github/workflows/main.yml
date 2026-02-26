@@ -4,84 +4,86 @@ on:
   push:
     branches: [master]
 
+env:
+  PROJECT_NAME: fastapi_template
+
 jobs:
   copy_infra_to_server:
-    name: Copy docker-compose.yml and nginx.conf
+    name: Copy docker-compose.yml and Caddyfile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6.0.2
 
       - name: Create projects directory
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
-            sudo rm -rf /home/${{ secrets.SERVER_USER }}/fastapi_template/
-            mkdir -p /home/${{ secrets.SERVER_USER }}/fastapi_template/
+            mkdir -p /home/${{ secrets.SERVER_USER }}/${{ env.PROJECT_NAME }}/
 
       - name: Prepare files for transfer
         run: |
           mkdir transfer
-          cp -r nginx transfer/
-          cp docker-compose.yml .env.config_compose .env.docker transfer/
+          cp docker-compose.yml Caddyfile .env.docker transfer/
 
       - name: Copy files
-        uses: garygrossgarten/github-action-scp@release
+        uses: appleboy/scp-action@v1.0.0
         with:
-          local: "transfer/"
-          remote: /home/${{ secrets.SERVER_USER }}/fastapi_template/
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          privateKey: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          source: "transfer/"
+          target: /home/${{ secrets.SERVER_USER }}/${{ env.PROJECT_NAME }}/
+          strip_components: 1
 
   build_and_push_backend_to_docker_hub:
     name: Push backend Docker image to Docker Hub
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6.0.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3.12.0
 
       - name: Login to Docker
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3.7.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Push backend to Docker Hub
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v6.19.2
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/fastapi_template:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     runs-on: ubuntu-latest
     needs: [copy_infra_to_server, build_and_push_backend_to_docker_hub]
     if: github.ref == 'refs/heads/master'
     steps:
-      - name: executing remote ssh commands to deploy
-        uses: appleboy/ssh-action@master
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
-            cd /home/${{ secrets.SERVER_USER }}/fastapi_template/
-
-            chmod +x /home/${{ secrets.SERVER_USER }}/fastapi_template/nginx/start.sh
+            cd /home/${{ secrets.SERVER_USER }}/${{ env.PROJECT_NAME }}/
 
             echo "${{ secrets.DOCKER_PASSWORD }}" | sudo docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-            sudo docker-compose down
+            sudo docker-compose --env-file .env.docker down
             sudo docker rm -f fastapi
-            sudo docker rmi -f ${{ secrets.DOCKER_USERNAME }}/fastapi_template
+            sudo docker rmi -f ${{ secrets.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}
 
-            sudo docker-compose up -d
+            sudo docker-compose --env-file .env.docker up -d

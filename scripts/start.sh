@@ -1,7 +1,11 @@
 #!/bin/sh
 
-# Запуск uvicorn
-gunicorn app.main:app -c gunicorn_conf.py &
-
-# Ожидание завершения всех процессов
-wait
+granian \
+    --interface asgi \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --loop uvloop \
+    --backlog 4096 \
+    --no-ws \
+    app.main:app

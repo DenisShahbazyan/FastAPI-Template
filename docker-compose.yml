@@ -10,12 +10,10 @@ services:
     networks:
       - app_network
     env_file:
-      - ./.env.config_compose
+      - .env.docker
 
   web:
-    image: denisshahbazyan/fastapi_proxy:latest  # TODO: Для продакшена заменить на свой образ
-    environment:
-      - ENVIRONMENT=docker
+    image: ${DOCKER_USERNAME}/fastapi_template:latest
     container_name: fastapi
     restart: always
     depends_on:
@@ -27,33 +25,24 @@ services:
     env_file:
       - .env.docker
 
-  nginx:
-    image: nginx:alpine
-    container_name: nginx
+  caddy:
+    image: caddy:2.11.1-alpine
+    container_name: caddy
+    restart: always
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
     volumes:
-      - ./nginx:/etc/nginx/conf.d
-      - ./nginx/start.sh:/start.sh
-      - nginx_certs:/etc/nginx/certs
-      - nginx_webroot:/usr/share/nginx/html
-    entrypoint: ["/bin/sh", "/start.sh"]
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    env_file:
+      - .env.docker
     depends_on:
       - web
     networks:
       - app_network
-
-  certbot:
-    image: certbot/certbot
-    container_name: certbot
-    volumes:
-      - nginx_certs:/etc/letsencrypt
-      - nginx_lib_certs:/var/lib/letsencrypt
-      - nginx_webroot:/usr/share/nginx/html
-    networks:
-      - app_network
-    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew; sleep 12h; done"
 
 networks:
   app_network:
@@ -61,6 +50,5 @@ networks:
 
 volumes:
   postgres_data:
-  nginx_certs:
-  nginx_lib_certs:
-  nginx_webroot:
+  caddy_data:
+  caddy_config:

@@ -10,12 +10,10 @@ services:
     networks:
       - app_network
     env_file:
-      - ./.env.config_compose
+      - .env.docker
 
   web:
     build: .
-    environment:
-      - ENVIRONMENT=docker
     container_name: fastapi
     restart: always
     depends_on:

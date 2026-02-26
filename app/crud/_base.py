@@ -2,7 +2,6 @@ from http import HTTPStatus
 from typing import Any, Generic, Sequence, Type, TypeVar
 
 from fastapi import HTTPException
-from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy import ColumnElement, delete, func, select, update
 from sqlalchemy import exists as sql_exists
@@ -173,13 +172,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # OR условие
-            user = await crud.get_by_condition(
+            user = await crud.get_by_condition_or_404(
                 session,
                 or_(User.email == "test@test.com", User.username == "test")
             )
 
             # Сложные условия
-            user = await crud.get_by_condition(
+            user = await crud.get_by_condition_or_404(
                 session,
                 User.age >= 18,
                 User.is_active == True,
@@ -553,7 +552,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         **filter_by: Any,
-    ) -> bool | None:
+    ) -> bool:
         """Проверяет существование записи с простыми условиями.
 
         Args:
@@ -575,7 +574,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         query = select(sql_exists(select(self.model.id).filter_by(**filter_by)))
         result = await async_session.execute(query)
-        return result.scalar()
+        return result.scalar() or False
 
     async def exists_or_404(
         self,
@@ -1234,12 +1233,11 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                 updated_user = await crud.update(session, user, update_data)
         ```
         """
-        obj_data = jsonable_encoder(db_obj)
         update_data = obj_in.model_dump(exclude_unset=True)
 
-        for field in update_data:
-            if field in obj_data:
-                setattr(db_obj, field, update_data[field])
+        for field, value in update_data.items():
+            if hasattr(db_obj, field):
+                setattr(db_obj, field, value)
         async_session.add(db_obj)
         await async_session.flush()
         return db_obj
@@ -1749,17 +1747,24 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             raise ValueError('Необходимо указать данные для обновления')
 
         total_updated = 0
+        last_id = 0
 
         while True:
-            # Получаем ID записей для обновления (порцию)
-            ids_query = select(self.model.id).filter_by(**filter_by).limit(batch_size)
+            # Получаем ID записей порциями через cursor (last_id), чтобы не зациклиться
+            # если update_data не меняет поля из filter_by
+            ids_query = (
+                select(self.model.id)
+                .filter_by(**filter_by)
+                .where(self.model.id > last_id)
+                .order_by(self.model.id)
+                .limit(batch_size)
+            )
             ids_result = await async_session.execute(ids_query)
             ids_to_update = [row[0] for row in ids_result.fetchall()]
 
             if not ids_to_update:
                 break
 
-            # Обновляем порцию
             stmt = (
                 update(self.model)
                 .where(self.model.id.in_(ids_to_update))
@@ -1768,12 +1773,10 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             result = await async_session.execute(stmt)
             await async_session.flush()
 
-            updated_in_batch = result.rowcount or 0
-            total_updated += updated_in_batch
+            total_updated += result.rowcount or 0
+            last_id = ids_to_update[-1]
 
-            # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: всегда выходим после первой порции
-            # если она меньше batch_size ИЛИ если обновили что-то
-            if len(ids_to_update) < batch_size or updated_in_batch > 0:
+            if len(ids_to_update) < batch_size:
                 break
 
         return total_updated
@@ -2347,14 +2350,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             )
             print(f"Удалено {total_deleted} неактивных пользователей")
 
-            # Удалить все старые логи
+            # Удалить все старые логи порциями
             from datetime import datetime, timedelta
-            cutoff_date = datetime.now() - timedelta(days=30)
 
-            # Для этого случая нужно использовать delete_by_condition
-            total_deleted = await crud.delete_by_condition(
+            total_deleted = await crud.bulk_delete_all_by_fields(
                 session,
-                Log.created_at < cutoff_date
+                batch_size=1000,
+                log_type="debug"
             )
         ```
         """
@@ -2767,9 +2769,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     ) -> SQLAlchemyModel | None:
         """Получает объект включая мягко удаленные.
 
+        В отличие от get(), игнорирует значение поля soft-delete — возвращает объект
+        независимо от того, удалён он или нет.
+
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            delete_field (str): Поле удаления для игнорирования
+            delete_field (str): Поле soft-delete для игнорирования. По умолчанию
+                'is_deleted'
             **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
@@ -2777,19 +2783,27 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         Example:
         ```
-            # Найти пользователя даже если он мягко удален
+            # Найти пользователя независимо от статуса удаления
             user = await crud.get_with_deleted(session, id=1)
 
-            # Найти удаленного пользователя
-            deleted_user = await crud.get_with_deleted(
-                session, id=1, is_deleted=True
+            # С кастомным полем soft-delete
+            user = await crud.get_with_deleted(
+                session,
+                delete_field='deleted_at',
+                id=1
             )
         ```
         """
         if not filter_by:
             raise ValueError('Необходимо указать хотя бы одно поле для поиска')
 
-        # Обычный get без фильтрации по delete_field
-        query = select(self.model).filter_by(**filter_by)
+        # Убираем поле soft-delete из фильтров, чтобы не ограничивать выборку
+        # по статусу удаления
+        clean_filter = {k: v for k, v in filter_by.items() if k != delete_field}
+
+        if not clean_filter:
+            raise ValueError('Необходимо указать хотя бы одно поле для поиска')
+
+        query = select(self.model).filter_by(**clean_filter)
         result = await async_session.execute(query)
         return result.scalars().first()

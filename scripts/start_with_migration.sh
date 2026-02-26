@@ -6,10 +6,9 @@ wait_for_db() {
     local count=0
     local wait_seconds=5
 
-    # Получаем переменные окружения или используем значения по умолчанию
     local host=${DB__HOST:-db}
     local port=${DB__PORT:-5432}
-    local user=${DB__USER:-postgres}
+    local user=${DB__USERNAME:-postgres}
     local db_name=${DB__NAME:-postgres}
 
     while [ $count -lt $max_retries ]; do
@@ -30,42 +29,36 @@ wait_for_db() {
 run_migration() {
     local retries=3
     local count=0
-    local delay=30 # 30 секунд между попытками
+    local delay=30
 
     echo "$(date): Running alembic migration..."
     alembic upgrade head
     if [ $? -eq 0 ]; then
         echo "$(date): Migrations applied successfully."
         return 0
-    else
-        echo "$(date): Initial migration attempt failed. Will retry a few times."
-
-        while [ $count -lt $retries ]; do
-            echo "$(date): Retrying migration. Attempt $((count+1)) of $retries. Waiting $delay seconds..."
-            sleep $delay
-
-            echo "$(date): Running alembic migration..."
-            alembic upgrade head
-            if [ $? -eq 0 ]; then
-                echo "$(date): Migrations applied successfully on retry."
-                return 0
-            else
-                echo "$(date): Migration retry failed. Attempt $((count+1)) of $retries."
-                count=$((count+1))
-            fi
-        done
-
-        echo "$(date): Migration failed after $retries retry attempts. Exiting."
-        return 1
     fi
+
+    echo "$(date): Initial migration attempt failed. Will retry a few times."
+    while [ $count -lt $retries ]; do
+        echo "$(date): Retrying migration. Attempt $((count+1)) of $retries. Waiting $delay seconds..."
+        sleep $delay
+
+        alembic upgrade head
+        if [ $? -eq 0 ]; then
+            echo "$(date): Migrations applied successfully on retry."
+            return 0
+        fi
+
+        echo "$(date): Migration retry failed. Attempt $((count+1)) of $retries."
+        count=$((count+1))
+    done
+
+    echo "$(date): Migration failed after $retries retry attempts. Exiting."
+    return 1
 }
 
-./scripts/start.sh &
-
-# Ждём инициализации базы данных
 wait_for_db || { echo "Cannot connect to database. Exiting."; exit 1; }
 
-# Запускаем миграции только после успешного подключения к БД
-run_migration
+run_migration || exit 1
 
-wait
+exec ./scripts/start.sh
