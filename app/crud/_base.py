@@ -32,14 +32,14 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def get(
         self,
         async_session: AsyncSession,
-        **filter_by: Any,
+        filters: dict[str, Any],
     ) -> SQLAlchemyModel | None:
         """Получает один элемент по заданным полям.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            **filter_by (Any): Именованные аргументы для фильтрации в формате
-                поле=значение
+            filters (dict[str, Any]): Словарь для фильтрации в формате
+                {"поле": значение}
 
         Returns:
             SQLAlchemyModel | None: Найденный объект или None, если объект не найден
@@ -47,36 +47,38 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # По ID
-            user = await crud.get(session, id=1)
+            user = await crud.get(session, {"id": 1})
 
             # По email
-            user = await crud.get(session, email="test@example.com")
+            user = await crud.get(session, {"email": "test@example.com"})
 
             # По нескольким полям
-            user = await crud.get(session, email="test@example.com", is_active=True)
+            user = await crud.get(
+                session, {"email": "test@example.com", "is_active": True}
+            )
         ```
         """
-        if not filter_by:
+        if not filters:
             raise ValueError('Необходимо указать хотя бы одно поле для поиска')
 
-        query = select(self.model).filter_by(**filter_by)
+        query = select(self.model).filter_by(**filters)
         result = await async_session.execute(query)
         return result.scalars().first()
 
     async def get_or_404(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any],
         *,
         _detail: str | None = None,
-        **filter_by: Any,
     ) -> SQLAlchemyModel:
         """Получает один элемент по заданным полям или возвращает 404 ошибку.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
+            filters (dict[str, Any]): Словарь для фильтрации в формате
+                {"поле": значение}
             _detail (str | None): Кастомное сообщение об ошибке
-            **filter_by (Any): Именованные аргументы для фильтрации в формате
-                поле=значение
 
         Returns:
             SQLAlchemyModel: Найденный объект
@@ -87,31 +89,29 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # По ID
-            user = await crud.get_or_404(session, id=1)
+            user = await crud.get_or_404(session, {"id": 1})
 
             # По email с кастомной ошибкой
             user = await crud.get_or_404(
                 session,
+                {"email": "test@example.com"},
                 _detail="Пользователь не найден",
-                email="test@example.com"
             )
 
             # По нескольким полям
             user = await crud.get_or_404(
                 session,
-                email="test@example.com",
-                is_active=True
+                {"email": "test@example.com", "is_active": True},
             )
         ```
         """
-        db_obj = await self.get(async_session, **filter_by)
+        db_obj = await self.get(async_session, filters)
 
         if not db_obj:
             if _detail:
                 error_detail = _detail
             else:
-                # Формируем красивое сообщение об ошибке
-                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filters.items()]
                 filter_str = ', '.join(filter_parts)
                 error_detail = f'{self.model.__name__} with {filter_str} not found'
 
@@ -199,22 +199,22 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def get_multi(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any] | None = None,
+        *,
         order_by: tuple[ColumnElement[Any], ...] | None = None,
         limit: int | None = None,
         offset: int | None = None,
-        **filter_by: Any,
     ) -> Sequence[SQLAlchemyModel]:
         """Получает список элементов с простыми условиями.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
+            filters (dict[str, Any] | None): Словарь для фильтрации
             order_by (tuple[ColumnElement, ...] | None, optional): Кортеж столбцов для
                 сортировки. Используйте .asc() для сортировки по возрастанию и .desc()
                 для убывания. По умолчанию None.
             limit (int | None): Максимальное количество записей
             offset (int | None): Смещение для пагинации
-            **filter_by (Any): Именованные аргументы для фильтрации в формате
-                поле=значение
 
         Returns:
             Sequence[SQLAlchemyModel]: Список найденных объектов или [], если объекты не
@@ -226,7 +226,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             users = await crud.get_multi(session)
 
             # С фильтрацией
-            active_users = await crud.get_multi(session, is_active=True)
+            active_users = await crud.get_multi(session, {"is_active": True})
 
             # Сортировка по одному полю по возрастанию
             users = await crud.get_multi(
@@ -237,21 +237,20 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             # Сортировка по нескольким полям с фильтрацией
             users = await crud.get_multi(
                 session,
+                {"is_active": True, "role": "admin"},
                 order_by=(User.role.asc(), User.created_at.desc()),
-                is_active=True,
-                role='admin'
             )
 
             # С пагинацией
             users = await crud.get_multi(
                 session,
+                {"is_active": True},
                 limit=10,
                 offset=20,
-                is_active=True
             )
         ```
         """
-        query = select(self.model).filter_by(**filter_by)
+        query = select(self.model).filter_by(**(filters or {}))
 
         if order_by:
             query = query.order_by(*order_by)
@@ -268,23 +267,23 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def get_multi_or_404(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any] | None = None,
+        *,
         order_by: tuple[ColumnElement[Any], ...] | None = None,
         limit: int | None = None,
         offset: int | None = None,
-        *,
         _detail: str | None = None,
-        **filter_by: Any,
     ) -> Sequence[SQLAlchemyModel]:
         """Получает список элементов с простыми условиями или возвращает 404 ошибку.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
+            filters (dict[str, Any] | None): Словарь для фильтрации
             order_by (tuple[ColumnElement, ...] | None, optional): Кортеж столбцов для
                 сортировки
             limit (int | None): Максимальное количество записей
             offset (int | None): Смещение для пагинации
             _detail (str | None): Кастомное сообщение об ошибке
-            **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
             Sequence[SQLAlchemyModel]: Список найденных объектов (не пустой)
@@ -295,35 +294,34 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # Получить всех админов (ошибка если нет ни одного)
-            admins = await crud.get_multi_or_404(session, role="admin")
+            admins = await crud.get_multi_or_404(session, {"role": "admin"})
 
             # С кастомной ошибкой
             active_users = await crud.get_multi_or_404(
                 session,
+                {"is_active": True},
                 _detail="Нет активных пользователей",
-                is_active=True
             )
 
             # С сортировкой и лимитом
             recent_posts = await crud.get_multi_or_404(
                 session,
+                {"published": True},
                 order_by=(Post.created_at.desc(),),
                 limit=5,
-                published=True
             )
         ```
         """
         db_objs = await self.get_multi(
-            async_session, order_by=order_by, limit=limit, offset=offset, **filter_by
+            async_session, filters, order_by=order_by, limit=limit, offset=offset
         )
 
         if not db_objs:
             if _detail:
                 error_detail = _detail
             else:
-                # Формируем красивое сообщение об ошибке
-                if filter_by:
-                    filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                if filters:
+                    filter_parts = [f'{k}={v}' for k, v in filters.items()]
                     filter_str = ', '.join(filter_parts)
                     error_detail = f'No {self.model.__name__} found with {filter_str}'
                 else:
@@ -484,13 +482,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def count(
         self,
         async_session: AsyncSession,
-        **filter_by: Any,
+        filters: dict[str, Any] | None = None,
     ) -> int:
         """Подсчитывает количество записей с простыми условиями.
 
         Args:
             async_session: Асинхронная сессия
-            **filter_by: Именованные аргументы для фильтрации
+            filters (dict[str, Any] | None): Словарь для фильтрации
 
         Returns:
             int: Количество записей
@@ -501,11 +499,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             total = await crud.count(session)
 
             # С фильтрацией
-            active_count = await crud.count(session, is_active=True)
-            admin_count = await crud.count(session, role="admin", is_active=True)
+            active_count = await crud.count(session, {"is_active": True})
+            admin_count = await crud.count(
+                session, {"role": "admin", "is_active": True}
+            )
         ```
         """
-        query = select(func.count(self.model.id)).filter_by(**filter_by)
+        query = select(func.count(self.model.id)).filter_by(**(filters or {}))
         result = await async_session.execute(query)
         return result.scalar() or 0
 
@@ -551,13 +551,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def exists(
         self,
         async_session: AsyncSession,
-        **filter_by: Any,
+        filters: dict[str, Any],
     ) -> bool:
         """Проверяет существование записи с простыми условиями.
 
         Args:
             async_session: Асинхронная сессия
-            **filter_by: Именованные аргументы для фильтрации
+            filters (dict[str, Any]): Словарь для фильтрации
 
         Returns:
             bool: True если запись существует
@@ -565,30 +565,32 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # Проверка существования
-            exists = await crud.exists(session, email="test@test.com")
-            exists = await crud.exists(session, username="admin", is_active=True)
+            exists = await crud.exists(session, {"email": "test@test.com"})
+            exists = await crud.exists(
+                session, {"username": "admin", "is_active": True}
+            )
         ```
         """
-        if not filter_by:
+        if not filters:
             raise ValueError('Необходимо указать хотя бы одно поле для поиска')
 
-        query = select(sql_exists(select(self.model.id).filter_by(**filter_by)))
+        query = select(sql_exists(select(self.model.id).filter_by(**filters)))
         result = await async_session.execute(query)
         return result.scalar() or False
 
     async def exists_or_404(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any],
         *,
         _detail: str | None = None,
-        **filter_by: Any,
     ) -> bool:
         """Проверяет существование записи по простым условиям или возвращает 404.
 
         Args:
             async_session: Асинхронная сессия
+            filters (dict[str, Any]): Словарь для фильтрации
             _detail: Кастомное сообщение об ошибке
-            **filter_by: Параметры для фильтрации
 
         Returns:
             bool: True если запись существует
@@ -596,13 +598,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Raises:
             HTTPException: 404 если запись не найдена
         """
-        exists_result = await self.exists(async_session, **filter_by)
+        exists_result = await self.exists(async_session, filters)
 
         if not exists_result:
             if _detail:
                 error_detail = _detail
             else:
-                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filters.items()]
                 filter_str = ', '.join(filter_parts)
                 error_detail = f'{self.model.__name__} with {filter_str} not found'
 
@@ -688,16 +690,16 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def not_exists_or_409(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any],
         *,
         _detail: str | None = None,
-        **filter_by: Any,
     ) -> bool:
         """Проверяет отсутствие записи по простым условиям или возвращает 409 Conflict.
 
         Args:
             async_session: Асинхронная сессия
+            filters (dict[str, Any]): Словарь для фильтрации
             _detail: Кастомное сообщение об ошибке
-            **filter_by: Параметры для фильтрации
 
         Returns:
             bool: True если запись не существует
@@ -708,30 +710,29 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # Проверка что email свободен перед регистрацией
-            await crud.not_exists_or_409(session, email="test@test.com")
+            await crud.not_exists_or_409(session, {"email": "test@test.com"})
 
             # С кастомной ошибкой
             await crud.not_exists_or_409(
                 session,
+                {"email": "test@test.com"},
                 _detail="Пользователь с таким email уже зарегистрирован",
-                email="test@test.com"
             )
 
             # Проверка нескольких полей
             await crud.not_exists_or_409(
                 session,
-                username="admin",
-                email="admin@test.com"
+                {"username": "admin", "email": "admin@test.com"},
             )
         ```
         """
-        exists_result = await self.exists(async_session, **filter_by)
+        exists_result = await self.exists(async_session, filters)
 
         if exists_result:
             if _detail:
                 error_detail = _detail
             else:
-                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filters.items()]
                 filter_str = ', '.join(filter_parts)
                 error_detail = f'{self.model.__name__} with {filter_str} already exists'
 
@@ -797,15 +798,15 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def get_or_create(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any],
         defaults: dict[str, Any] | None = None,
-        **filter_by: Any,
     ) -> tuple[SQLAlchemyModel, bool]:
         """Получает объект или создает его, если не существует.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
+            filters (dict[str, Any]): Поля для поиска существующего объекта
             defaults (dict[str, Any] | None): Дополнительные поля для создания объекта
-            **filter_by (Any): Поля для поиска существующего объекта
 
         Returns:
             tuple[SQLAlchemyModel, bool]: Кортеж (объект, создан_ли_новый)
@@ -817,7 +818,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             # Простой случай - получить или создать пользователя по email
             user, created = await crud.get_or_create(
                 session,
-                email="test@example.com"
+                {"email": "test@example.com"},
             )
             if created:
                 print("Создан новый пользователь")
@@ -827,55 +828,50 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             # С дополнительными полями для создания
             user, created = await crud.get_or_create(
                 session,
+                {"email": "john@example.com"},
                 defaults={
                     "username": "john_doe",
                     "first_name": "John",
                     "last_name": "Doe",
-                    "is_active": True
+                    "is_active": True,
                 },
-                email="john@example.com"
             )
 
             # Сложный пример - категория с slug
             category, created = await crud.get_or_create(
                 session,
+                {"slug": "technology"},
                 defaults={
                     "name": "Technology",
-                    "description": "Tech articles"
+                    "description": "Tech articles",
                 },
-                slug="technology"
             )
 
             # Получить или создать настройки пользователя
             settings, created = await crud.get_or_create(
                 session,
+                {"user_id": user_id},
                 defaults={
                     "theme": "dark",
                     "notifications": True,
-                    "language": "en"
+                    "language": "en",
                 },
-                user_id=user_id
             )
         ```
         """
-        if not filter_by:
+        if not filters:
             raise ValueError('Необходимо указать хотя бы одно поле для поиска')
 
-        # Сначала пытаемся найти существующий объект
-        db_obj = await self.get(async_session, **filter_by)
+        db_obj = await self.get(async_session, filters)
 
         if db_obj:
-            # Объект найден, возвращаем его
             return db_obj, False
 
-        # Объект не найден, создаем новый
         try:
-            # Объединяем поля поиска и defaults для создания
-            create_data = filter_by.copy()
+            create_data = filters.copy()
             if defaults:
                 create_data.update(defaults)
 
-            # Создаем объект
             db_obj = self.model(**create_data)
             async_session.add(db_obj)
             await async_session.flush()
@@ -884,16 +880,12 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             return db_obj, True
 
         except Exception as e:
-            # В случае race condition (если другой процесс создал объект между нашими
-            # запросами)
-            # откатываем транзакцию и пытаемся найти объект еще раз
             await async_session.rollback()
 
-            db_obj = await self.get(async_session, **filter_by)
+            db_obj = await self.get(async_session, filters)
             if db_obj:
                 return db_obj, False
 
-            # Если объект все еще не найден, пробрасываем исключение
             raise e
 
     async def get_or_create_with_pydantic(
@@ -952,7 +944,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         obj_data = obj_in.model_dump()
 
-        # Извлекаем поля для поиска
         search_criteria = {}
         for field in search_fields:
             if field in obj_data:
@@ -960,13 +951,11 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             else:
                 raise ValueError(f"Поле '{field}' не найдено в данных объекта")
 
-        # Пытаемся найти существующий объект
-        db_obj = await self.get(async_session, **search_criteria)
+        db_obj = await self.get(async_session, search_criteria)
 
         if db_obj:
             return db_obj, False
 
-        # Создаем новый объект
         try:
             if user_id is not None:
                 obj_data['user_id'] = user_id
@@ -981,8 +970,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         except Exception as e:
             await async_session.rollback()
 
-            # Проверяем еще раз на случай race condition
-            db_obj = await self.get(async_session, **search_criteria)
+            db_obj = await self.get(async_session, search_criteria)
             if db_obj:
                 return db_obj, False
 
@@ -1068,14 +1056,11 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         if not conditions:
             raise ValueError('Необходимо указать хотя бы одно условие для поиска')
 
-        # Сначала пытаемся найти существующий объект
         db_obj = await self.get_by_condition(async_session, *conditions)
 
         if db_obj:
-            # Объект найден, возвращаем его
             return db_obj, False
 
-        # Объект не найден, создаем новый
         if not create_data:
             raise ValueError(
                 'Необходимо указать create_data для создания объекта '
@@ -1083,15 +1068,12 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             )
 
         try:
-            # Объединяем create_data и defaults для создания
             final_create_data = create_data.copy()
             if defaults:
-                # defaults не перезаписывают create_data
                 for key, value in defaults.items():
                     if key not in final_create_data:
                         final_create_data[key] = value
 
-            # Создаем объект
             db_obj = self.model(**final_create_data)
             async_session.add(db_obj)
             await async_session.flush()
@@ -1100,15 +1082,12 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             return db_obj, True
 
         except Exception as e:
-            # В случае race condition (если другой процесс создал объект между нашими
-            # запросами) откатываем транзакцию и пытаемся найти объект еще раз
             await async_session.rollback()
 
             db_obj = await self.get_by_condition(async_session, *conditions)
             if db_obj:
                 return db_obj, False
 
-            # Если объект все еще не найден, пробрасываем исключение
             raise e
 
     async def create(
@@ -1150,7 +1129,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         ```
         """
         obj_in_data = obj_in.model_dump()
-        # Добавляем все дополнительные поля
         obj_in_data.update(extra_fields)
         db_obj = self.model(**obj_in_data)
         async_session.add(db_obj)
@@ -1227,7 +1205,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # Получаем объект и обновляем его
-            user = await crud.get(session, id=1)
+            user = await crud.get(session, {"id": 1})
             if user:
                 update_data = UserUpdate(username="new_username", email="new@email.com")
                 updated_user = await crud.update(session, user, update_data)
@@ -1246,14 +1224,14 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         obj_in: PydanticSchema,
-        **filter_by: Any,
+        filters: dict[str, Any],
     ) -> SQLAlchemyModel:
         """Находит один объект и обновляет его, или возвращает 404 ошибку.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             obj_in (PydanticSchema): Pydantic объект с данными для обновления
-            **filter_by (Any): Именованные аргументы для поиска объекта
+            filters (dict[str, Any]): Словарь для поиска объекта
 
         Returns:
             SQLAlchemyModel: Обновленный объект
@@ -1268,7 +1246,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             updated_user = await crud.update_or_404(
                 session,
                 update_data,
-                id=1
+                {"id": 1},
             )
 
             # Найти и обновить пост по slug
@@ -1276,25 +1254,25 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             updated_post = await crud.update_or_404(
                 session,
                 post_update,
-                slug="my-post-slug"
+                {"slug": "my-post-slug"},
             )
         ```
         """
-        db_obj = await self.get_or_404(async_session, **filter_by)
+        db_obj = await self.get_or_404(async_session, filters)
         return await self.update(async_session, db_obj, obj_in)
 
     async def update_by_fields(
         self,
         async_session: AsyncSession,
         update_data: dict[str, Any],
-        **filter_by: Any,
+        filters: dict[str, Any],
     ) -> int:
         """Обновляет объекты по простым условиям.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             update_data (dict[str, Any]): Словарь с данными для обновления
-            **filter_by (Any): Именованные аргументы для фильтрации
+            filters (dict[str, Any]): Словарь для фильтрации
 
         Returns:
             int: Количество обновленных объектов
@@ -1305,32 +1283,31 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             updated_count = await crud.update_by_fields(
                 session,
                 {"email": "new@email.com", "is_verified": True},
-                id=1
+                {"id": 1},
             )
 
             # Деактивировать всех пользователей определенной роли
             updated_count = await crud.update_by_fields(
                 session,
                 {"is_active": False},
-                role="guest"
+                {"role": "guest"},
             )
 
             # Обновить статус всех постов пользователя
             updated_count = await crud.update_by_fields(
                 session,
                 {"status": "archived"},
-                user_id=user_id,
-                published=False
+                {"user_id": user_id, "published": False},
             )
         ```
         """
-        if not filter_by:
+        if not filters:
             raise ValueError('Необходимо указать хотя бы одно поле для фильтрации')
 
         if not update_data:
             raise ValueError('Необходимо указать данные для обновления')
 
-        stmt = update(self.model).filter_by(**filter_by).values(**update_data)
+        stmt = update(self.model).filter_by(**filters).values(**update_data)
         result = await async_session.execute(stmt)
         await async_session.flush()
         return result.rowcount or 0
@@ -1339,17 +1316,17 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         update_data: dict[str, Any],
+        filters: dict[str, Any],
         *,
         _detail: str | None = None,
-        **filter_by: Any,
     ) -> int:
         """Обновляет объекты по простым условиям или возвращает 404 ошибку.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             update_data (dict[str, Any]): Словарь с данными для обновления
+            filters (dict[str, Any]): Словарь для фильтрации
             _detail (str | None): Кастомное сообщение об ошибке
-            **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
             int: Количество обновленных объектов (больше 0)
@@ -1363,27 +1340,25 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             updated_count = await crud.update_by_fields_or_404(
                 session,
                 {"username": "new_username"},
-                email="test@example.com"
+                {"email": "test@example.com"},
             )
 
             # С кастомной ошибкой
             updated_count = await crud.update_by_fields_or_404(
                 session,
                 {"status": "completed"},
+                {"id": task_id},
                 _detail="Задача для обновления не найдена",
-                id=task_id
             )
         ```
         """
-        updated_count = await self.update_by_fields(
-            async_session, update_data, **filter_by
-        )
+        updated_count = await self.update_by_fields(async_session, update_data, filters)
 
         if updated_count == 0:
             if _detail:
                 error_detail = _detail
             else:
-                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filters.items()]
                 filter_str = ', '.join(filter_parts)
                 error_detail = (
                     f'No {self.model.__name__} found to update with {filter_str}'
@@ -1514,14 +1489,14 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         obj_in: PydanticSchema,
-        **filter_by: Any,
+        filters: dict[str, Any],
     ) -> int:
         """Обновляет объекты используя Pydantic модель по простым условиям.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             obj_in (PydanticSchema): Pydantic объект с данными для обновления
-            **filter_by (Any): Именованные аргументы для фильтрации
+            filters (dict[str, Any]): Словарь для фильтрации
 
         Returns:
             int: Количество обновленных объектов
@@ -1533,7 +1508,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             updated_count = await crud.update_with_pydantic_by_fields(
                 session,
                 update_data,
-                id=1
+                {"id": 1},
             )
 
             # Обновить настройки всех пользователей
@@ -1541,20 +1516,20 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             updated_count = await crud.update_with_pydantic_by_fields(
                 session,
                 settings_update,
-                role="user"
+                {"role": "user"},
             )
         ```
         """
         update_data = obj_in.model_dump(exclude_unset=True)
-        return await self.update_by_fields(async_session, update_data, **filter_by)
+        return await self.update_by_fields(async_session, update_data, filters)
 
     async def update_with_pydantic_by_fields_or_404(
         self,
         async_session: AsyncSession,
         obj_in: PydanticSchema,
+        filters: dict[str, Any],
         *,
         _detail: str | None = None,
-        **filter_by: Any,
     ) -> int:
         """Обновляет объекты используя Pydantic модель по простым условиям или
         возвращает 404.
@@ -1562,8 +1537,8 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Args:
             async_session (AsyncSession): Асинхронная сессия
             obj_in (PydanticSchema): Pydantic объект с данными для обновления
+            filters (dict[str, Any]): Словарь для фильтрации
             _detail (str | None): Кастомное сообщение об ошибке
-            **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
             int: Количество обновленных объектов (больше 0)
@@ -1578,13 +1553,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             updated_count = await crud.update_with_pydantic_by_fields_or_404(
                 session,
                 update_data,
-                email="test@example.com"
+                {"email": "test@example.com"},
             )
         ```
         """
         update_data = obj_in.model_dump(exclude_unset=True)
         return await self.update_by_fields_or_404(
-            async_session, update_data, _detail=_detail, **filter_by
+            async_session, update_data, filters, _detail=_detail
         )
 
     async def bulk_update_by_ids(
@@ -1705,16 +1680,16 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         self,
         async_session: AsyncSession,
         update_data: dict[str, Any],
+        filters: dict[str, Any],
         batch_size: int = 1000,
-        **filter_by: Any,
     ) -> int:
         """Обновляет все объекты по условиям порциями (для больших таблиц).
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
             update_data (dict[str, Any]): Словарь с данными для обновления
+            filters (dict[str, Any]): Словарь для фильтрации
             batch_size (int): Размер порции для обновления
-            **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
             int: Общее количество обновленных объектов
@@ -1725,8 +1700,8 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             total_updated = await crud.bulk_update_all_by_fields(
                 session,
                 {"status": "archived", "archived_at": datetime.now()},
+                {"is_active": False},
                 batch_size=500,
-                is_active=False
             )
             print(f"Обновлено {total_updated} неактивных пользователей")
 
@@ -1734,13 +1709,12 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             total_updated = await crud.bulk_update_all_by_fields(
                 session,
                 {"expires_at": datetime.now() + timedelta(days=30)},
+                {"is_read": False, "type": "notification"},
                 batch_size=2000,
-                is_read=False,
-                type="notification"
             )
         ```
         """
-        if not filter_by:
+        if not filters:
             raise ValueError('Необходимо указать условия для обновления')
 
         if not update_data:
@@ -1750,11 +1724,9 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         last_id = 0
 
         while True:
-            # Получаем ID записей порциями через cursor (last_id), чтобы не зациклиться
-            # если update_data не меняет поля из filter_by
             ids_query = (
                 select(self.model.id)
-                .filter_by(**filter_by)
+                .filter_by(**filters)
                 .where(self.model.id > last_id)
                 .order_by(self.model.id)
                 .limit(batch_size)
@@ -1886,11 +1858,9 @@ class CRUDBase(Generic[SQLAlchemyModel]):
 
         obj_data = obj_in.model_dump()
 
-        # Добавляем user_id если указан
         if user_id is not None:
             obj_data['user_id'] = user_id
 
-        # Извлекаем поля для поиска
         search_criteria = {}
         for field in unique_fields:
             if field in obj_data:
@@ -1898,22 +1868,17 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             else:
                 raise ValueError(f"Поле '{field}' не найдено в данных объекта")
 
-        # Пытаемся найти существующий объект
-        existing_obj = await self.get(async_session, **search_criteria)
+        existing_obj = await self.get(async_session, search_criteria)
 
         if existing_obj:
-            # Объект существует - обновляем его
             try:
-                # Определяем какие поля обновлять
                 if update_fields is not None:
-                    # Обновляем только указанные поля
                     update_data = {
                         field: obj_data[field]
                         for field in update_fields
                         if field in obj_data
                     }
                 else:
-                    # Обновляем все поля кроме уникальных (они не должны изменяться)
                     update_data = {
                         field: value
                         for field, value in obj_data.items()
@@ -1921,7 +1886,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                     }
 
                 if update_data:
-                    # Обновляем существующий объект
                     for field, value in update_data.items():
                         if hasattr(existing_obj, field):
                             setattr(existing_obj, field, value)
@@ -1936,7 +1900,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                 raise e
 
         else:
-            # Объект не существует - создаем новый
             try:
                 db_obj = self.model(**obj_data)
                 async_session.add(db_obj)
@@ -1945,17 +1908,12 @@ class CRUDBase(Generic[SQLAlchemyModel]):
                 return db_obj, True
 
             except Exception as e:
-                # В случае race condition (если другой процесс создал объект между
-                # нашими запросами) откатываем транзакцию и пытаемся найти объект
-                # еще раз
                 await async_session.rollback()
 
-                existing_obj = await self.get(async_session, **search_criteria)
+                existing_obj = await self.get(async_session, search_criteria)
                 if existing_obj:
-                    # Объект был создан другим процессом, возвращаем его
                     return existing_obj, False
 
-                # Если объект все еще не найден, пробрасываем исключение
                 raise e
 
     async def bulk_upsert(
@@ -2029,7 +1987,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         Example:
         ```
             # Получаем объект и удаляем его
-            user = await crud.get(session, id=1)
+            user = await crud.get(session, {"id": 1})
             if user:
                 await crud.delete(session, user)
         ```
@@ -2040,13 +1998,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def delete_by_fields(
         self,
         async_session: AsyncSession,
-        **filter_by: Any,
+        filters: dict[str, Any],
     ) -> int:
         """Удаляет объекты по простым условиям.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
-            **filter_by (Any): Именованные аргументы для фильтрации
+            filters (dict[str, Any]): Словарь для фильтрации
 
         Returns:
             int: Количество удаленных объектов
@@ -2056,24 +2014,25 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             # Удалить пользователя по email
             deleted_count = await crud.delete_by_fields(
                 session,
-                email="test@example.com",
+                {"email": "test@example.com"},
             )
 
             # Удалить всех неактивных пользователей определенной роли
             deleted_count = await crud.delete_by_fields(
                 session,
-                is_active=False,
-                role="guest"
+                {"is_active": False, "role": "guest"},
             )
 
             # Удалить все посты пользователя
-            deleted_count = await crud.delete_by_fields(session, user_id=user_id)
+            deleted_count = await crud.delete_by_fields(
+                session, {"user_id": user_id}
+            )
         ```
         """
-        if not filter_by:
+        if not filters:
             raise ValueError('Необходимо указать хотя бы одно поле для удаления')
 
-        stmt = delete(self.model).filter_by(**filter_by)
+        stmt = delete(self.model).filter_by(**filters)
         result = await async_session.execute(stmt)
         await async_session.flush()
         return result.rowcount or 0
@@ -2081,16 +2040,16 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def delete_by_fields_or_404(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any],
         *,
         _detail: str | None = None,
-        **filter_by: Any,
     ) -> int:
         """Удаляет объекты по простым условиям или возвращает 404 ошибку.
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
+            filters (dict[str, Any]): Словарь для фильтрации
             _detail (str | None): Кастомное сообщение об ошибке
-            **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
             int: Количество удаленных объектов (больше 0)
@@ -2103,24 +2062,24 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             # Удалить пользователя по email (ошибка если не найден)
             deleted_count = await crud.delete_by_fields_or_404(
                 session,
-                email="test@example.com"
+                {"email": "test@example.com"},
             )
 
             # С кастомной ошибкой
             deleted_count = await crud.delete_by_fields_or_404(
                 session,
+                {"email": "test@example.com"},
                 _detail="Пользователь для удаления не найден",
-                email="test@example.com"
             )
         ```
         """
-        deleted_count = await self.delete_by_fields(async_session, **filter_by)
+        deleted_count = await self.delete_by_fields(async_session, filters)
 
         if deleted_count == 0:
             if _detail:
                 error_detail = _detail
             else:
-                filter_parts = [f'{k}={v}' for k, v in filter_by.items()]
+                filter_parts = [f'{k}={v}' for k, v in filters.items()]
                 filter_str = ', '.join(filter_parts)
                 error_detail = (
                     f'No {self.model.__name__} found to delete with {filter_str}'
@@ -2327,15 +2286,15 @@ class CRUDBase(Generic[SQLAlchemyModel]):
     async def bulk_delete_all_by_fields(
         self,
         async_session: AsyncSession,
+        filters: dict[str, Any],
         batch_size: int = 1000,
-        **filter_by: Any,
     ) -> int:
         """Удаляет все объекты по условиям порциями (для больших таблиц).
 
         Args:
             async_session (AsyncSession): Асинхронная сессия
+            filters (dict[str, Any]): Словарь для фильтрации
             batch_size (int): Размер порции для удаления
-            **filter_by (Any): Именованные аргументы для фильтрации
 
         Returns:
             int: Общее количество удаленных объектов
@@ -2345,37 +2304,32 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             # Удалить всех неактивных пользователей порциями
             total_deleted = await crud.bulk_delete_all_by_fields(
                 session,
+                {"is_active": False},
                 batch_size=500,
-                is_active=False
             )
             print(f"Удалено {total_deleted} неактивных пользователей")
 
             # Удалить все старые логи порциями
-            from datetime import datetime, timedelta
-
             total_deleted = await crud.bulk_delete_all_by_fields(
                 session,
+                {"log_type": "debug"},
                 batch_size=1000,
-                log_type="debug"
             )
         ```
         """
-        if not filter_by:
+        if not filters:
             raise ValueError('Необходимо указать условия для удаления')
 
         total_deleted = 0
 
         while True:
-            # Получаем ID записей для удаления (порцию)
-            ids_query = select(self.model.id).filter_by(**filter_by).limit(batch_size)
+            ids_query = select(self.model.id).filter_by(**filters).limit(batch_size)
             ids_result = await async_session.execute(ids_query)
             ids_to_delete = [row[0] for row in ids_result.fetchall()]
 
             if not ids_to_delete:
-                # Больше нет записей для удаления
                 break
 
-            # Удаляем порцию по ID
             stmt = delete(self.model).where(self.model.id.in_(ids_to_delete))
             result = await async_session.execute(stmt)
             await async_session.flush()
@@ -2383,7 +2337,6 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             deleted_in_batch = result.rowcount or 0
             total_deleted += deleted_in_batch
 
-            # Если получили меньше чем batch_size, значит это была последняя порция
             if len(ids_to_delete) < batch_size:
                 break
 
@@ -2433,16 +2386,13 @@ class CRUDBase(Generic[SQLAlchemyModel]):
         total_deleted = 0
 
         while True:
-            # Получаем ID записей для удаления (порцию)
             ids_query = select(self.model.id).filter(*conditions).limit(batch_size)
             ids_result = await async_session.execute(ids_query)
             ids_to_delete = [row[0] for row in ids_result.fetchall()]
 
             if not ids_to_delete:
-                # Больше нет записей для удаления
                 break
 
-            # Удаляем порцию по ID
             stmt = delete(self.model).where(self.model.id.in_(ids_to_delete))
             result = await async_session.execute(stmt)
             await async_session.flush()
@@ -2450,360 +2400,7 @@ class CRUDBase(Generic[SQLAlchemyModel]):
             deleted_in_batch = result.rowcount or 0
             total_deleted += deleted_in_batch
 
-            # Если получили меньше чем batch_size, значит это была последняя порция
             if len(ids_to_delete) < batch_size:
                 break
 
         return total_deleted
-
-    async def soft_delete(
-        self,
-        async_session: AsyncSession,
-        db_obj: SQLAlchemyModel,
-        delete_field: str = 'is_deleted',
-        delete_value: Any = True,
-        deleted_at_field: str | None = 'deleted_at',
-        deleted_by_field: str | None = None,
-        user_id: int | None = None,
-    ) -> SQLAlchemyModel:
-        """Мягкое удаление объекта (устанавливает флаг вместо физического удаления).
-
-        Args:
-            async_session (AsyncSession): Асинхронная сессия
-            db_obj (SQLAlchemyModel): Объект для мягкого удаления
-            delete_field (str): Поле для отметки удаления. По умолчанию 'is_deleted'
-            delete_value (Any): Значение для поля удаления. По умолчанию True
-            deleted_at_field (str | None): Поле для времени удаления.
-                По умолчанию 'deleted_at'
-            deleted_by_field (str | None): Поле для пользователя удалившего.
-                По умолчанию None
-            user_id (int | None): ID пользователя, совершившего удаление
-
-        Returns:
-            SQLAlchemyModel: Мягко удаленный объект
-
-        Raises:
-            AttributeError: Если указанное поле не существует в модели
-
-        Example:
-        ```
-            # Простое мягкое удаление
-            user = await crud.get(session, id=1)
-            deleted_user = await crud.soft_delete(session, user)
-            # Устанавливает is_deleted=True, deleted_at=now()
-
-            # С кастомными полями
-            post = await crud.get(session, id=1)
-            deleted_post = await crud.soft_delete(
-                session,
-                post,
-                delete_field='status',
-                delete_value='deleted',
-                deleted_at_field='deleted_timestamp',
-                deleted_by_field='deleted_by_user_id',
-                user_id=current_user.id
-            )
-
-            # Только флаг без времени
-            comment = await crud.get(session, id=1)
-            deleted_comment = await crud.soft_delete(
-                session,
-                comment,
-                deleted_at_field=None  # Не устанавливать время
-            )
-        ```
-        """
-        from datetime import datetime
-
-        # Проверяем что поле удаления существует
-        if not hasattr(db_obj, delete_field):
-            raise AttributeError(
-                f"Поле '{delete_field}' не существует в модели {self.model.__name__}"
-            )
-
-        # Устанавливаем флаг удаления
-        setattr(db_obj, delete_field, delete_value)
-
-        # Устанавливаем время удаления если поле указано
-        if deleted_at_field:
-            if not hasattr(db_obj, deleted_at_field):
-                raise AttributeError(
-                    f"Поле '{deleted_at_field}' не существует в модели "
-                    f'{self.model.__name__}'
-                )
-            setattr(db_obj, deleted_at_field, datetime.now())
-
-        # Устанавливаем пользователя удалившего если поле указано
-        if deleted_by_field and user_id:
-            if not hasattr(db_obj, deleted_by_field):
-                raise AttributeError(
-                    f"Поле '{deleted_by_field}' не существует в модели "
-                    f'{self.model.__name__}'
-                )
-            setattr(db_obj, deleted_by_field, user_id)
-
-        async_session.add(db_obj)
-        await async_session.flush()
-        await async_session.refresh(db_obj)
-        return db_obj
-
-    async def soft_delete_by_fields(
-        self,
-        async_session: AsyncSession,
-        delete_field: str = 'is_deleted',
-        delete_value: Any = True,
-        deleted_at_field: str | None = 'deleted_at',
-        deleted_by_field: str | None = None,
-        user_id: int | None = None,
-        **filter_by: Any,
-    ) -> int:
-        """Мягкое удаление объектов по простым условиям.
-
-        Args:
-            async_session (AsyncSession): Асинхронная сессия
-            delete_field (str): Поле для отметки удаления
-            delete_value (Any): Значение для поля удаления
-            deleted_at_field (str | None): Поле для времени удаления
-            deleted_by_field (str | None): Поле для пользователя удалившего
-            user_id (int | None): ID пользователя, совершившего удаление
-            **filter_by (Any): Именованные аргументы для фильтрации
-
-        Returns:
-            int: Количество мягко удаленных объектов
-
-        Example:
-        ```
-            # Мягко удалить всех неактивных пользователей
-            deleted_count = await crud.soft_delete_by_fields(
-                session,
-                is_active=False,
-                user_id=admin_user.id
-            )
-
-            # С кастомными полями
-            deleted_count = await crud.soft_delete_by_fields(
-                session,
-                delete_field='status',
-                delete_value='archived',
-                deleted_at_field='archived_at',
-                category='old',
-                created_date__lt=cutoff_date
-            )
-        ```
-        """
-        from datetime import datetime
-
-        if not filter_by:
-            raise ValueError('Необходимо указать хотя бы одно поле для фильтрации')
-
-        # Проверяем что поля существуют в модели
-        if not hasattr(self.model, delete_field):
-            raise AttributeError(
-                f"Поле '{delete_field}' не существует в модели {self.model.__name__}"
-            )
-
-        # Подготавливаем данные для обновления
-        update_data = {delete_field: delete_value}
-
-        if deleted_at_field:
-            if not hasattr(self.model, deleted_at_field):
-                raise AttributeError(
-                    f"Поле '{deleted_at_field}' не существует в модели "
-                    f'{self.model.__name__}'
-                )
-            update_data[deleted_at_field] = datetime.now()
-
-        if deleted_by_field and user_id:
-            if not hasattr(self.model, deleted_by_field):
-                raise AttributeError(
-                    f"Поле '{deleted_by_field}' не существует в модели "
-                    f'{self.model.__name__}'
-                )
-            update_data[deleted_by_field] = user_id
-
-        # Выполняем мягкое удаление через обновление
-        return await self.update_by_fields(async_session, update_data, **filter_by)
-
-    async def soft_delete_by_condition(
-        self,
-        async_session: AsyncSession,
-        *conditions: ColumnElement[bool],
-        delete_field: str = 'is_deleted',
-        delete_value: Any = True,
-        deleted_at_field: str | None = 'deleted_at',
-        deleted_by_field: str | None = None,
-        user_id: int | None = None,
-    ) -> int:
-        """Мягкое удаление объектов по сложным условиям.
-
-        Args:
-            async_session: Асинхронная сессия
-            *conditions: Условия для фильтрации
-            delete_field (str): Поле для отметки удаления
-            delete_value (Any): Значение для поля удаления
-            deleted_at_field (str | None): Поле для времени удаления
-            deleted_by_field (str | None): Поле для пользователя удалившего
-            user_id (int | None): ID пользователя, совершившего удаление
-
-        Returns:
-            int: Количество мягко удаленных объектов
-
-        Example:
-        ```
-            from sqlalchemy import and_, or_
-            from datetime import datetime, timedelta
-
-            # Мягко удалить старые неактивные посты
-            deleted_count = await crud.soft_delete_by_condition(
-                session,
-                and_(
-                    Post.is_active == False,
-                    Post.created_at < datetime.now() - timedelta(days=30)
-                ),
-                user_id=admin_user.id
-            )
-
-            # Архивировать посты определенных категорий
-            deleted_count = await crud.soft_delete_by_condition(
-                session,
-                or_(
-                    Post.category == 'temp',
-                    Post.category == 'draft'
-                ),
-                delete_field='status',
-                delete_value='archived'
-            )
-        ```
-        """
-        from datetime import datetime
-
-        if not conditions:
-            raise ValueError('Необходимо указать хотя бы одно условие для удаления')
-
-        # Проверяем что поля существуют в модели
-        if not hasattr(self.model, delete_field):
-            raise AttributeError(
-                f"Поле '{delete_field}' не существует в модели {self.model.__name__}"
-            )
-
-        # Подготавливаем данные для обновления
-        update_data = {delete_field: delete_value}
-
-        if deleted_at_field:
-            if not hasattr(self.model, deleted_at_field):
-                raise AttributeError(
-                    f"Поле '{deleted_at_field}' не существует в модели "
-                    f'{self.model.__name__}'
-                )
-            update_data[deleted_at_field] = datetime.now()
-
-        if deleted_by_field and user_id:
-            if not hasattr(self.model, deleted_by_field):
-                raise AttributeError(
-                    f"Поле '{deleted_by_field}' не существует в модели "
-                    f'{self.model.__name__}'
-                )
-            update_data[deleted_by_field] = user_id
-
-        # Выполняем мягкое удаление через обновление
-        return await self.update_by_condition(async_session, update_data, *conditions)
-
-    async def restore(
-        self,
-        async_session: AsyncSession,
-        db_obj: SQLAlchemyModel,
-        delete_field: str = 'is_deleted',
-        restore_value: Any = False,
-        deleted_at_field: str | None = 'deleted_at',
-        deleted_by_field: str | None = None,
-    ) -> SQLAlchemyModel:
-        """Восстанавливает мягко удаленный объект.
-
-        Args:
-            async_session (AsyncSession): Асинхронная сессия
-            db_obj (SQLAlchemyModel): Объект для восстановления
-            delete_field (str): Поле удаления для сброса
-            restore_value (Any): Значение для восстановления. По умолчанию False
-            deleted_at_field (str | None): Поле времени удаления для сброса
-            deleted_by_field (str | None): Поле пользователя удалившего для сброса
-
-        Returns:
-            SQLAlchemyModel: Восстановленный объект
-
-        Example:
-        ```
-            # Найти мягко удаленного пользователя и восстановить
-            deleted_user = await crud.get(session, id=1, is_deleted=True)
-            if deleted_user:
-                restored_user = await crud.restore(session, deleted_user)
-                # Устанавливает is_deleted=False, deleted_at=None
-        ```
-        """
-        # Проверяем что поле удаления существует
-        if not hasattr(db_obj, delete_field):
-            raise AttributeError(
-                f"Поле '{delete_field}' не существует в модели {self.model.__name__}"
-            )
-
-        # Сбрасываем флаг удаления
-        setattr(db_obj, delete_field, restore_value)
-
-        # Сбрасываем время удаления если поле указано
-        if deleted_at_field and hasattr(db_obj, deleted_at_field):
-            setattr(db_obj, deleted_at_field, None)
-
-        # Сбрасываем пользователя удалившего если поле указано
-        if deleted_by_field and hasattr(db_obj, deleted_by_field):
-            setattr(db_obj, deleted_by_field, None)
-
-        async_session.add(db_obj)
-        await async_session.flush()
-        await async_session.refresh(db_obj)
-        return db_obj
-
-    async def get_with_deleted(
-        self,
-        async_session: AsyncSession,
-        delete_field: str = 'is_deleted',
-        **filter_by: Any,
-    ) -> SQLAlchemyModel | None:
-        """Получает объект включая мягко удаленные.
-
-        В отличие от get(), игнорирует значение поля soft-delete — возвращает объект
-        независимо от того, удалён он или нет.
-
-        Args:
-            async_session (AsyncSession): Асинхронная сессия
-            delete_field (str): Поле soft-delete для игнорирования. По умолчанию
-                'is_deleted'
-            **filter_by (Any): Именованные аргументы для фильтрации
-
-        Returns:
-            SQLAlchemyModel | None: Найденный объект или None
-
-        Example:
-        ```
-            # Найти пользователя независимо от статуса удаления
-            user = await crud.get_with_deleted(session, id=1)
-
-            # С кастомным полем soft-delete
-            user = await crud.get_with_deleted(
-                session,
-                delete_field='deleted_at',
-                id=1
-            )
-        ```
-        """
-        if not filter_by:
-            raise ValueError('Необходимо указать хотя бы одно поле для поиска')
-
-        # Убираем поле soft-delete из фильтров, чтобы не ограничивать выборку
-        # по статусу удаления
-        clean_filter = {k: v for k, v in filter_by.items() if k != delete_field}
-
-        if not clean_filter:
-            raise ValueError('Необходимо указать хотя бы одно поле для поиска')
-
-        query = select(self.model).filter_by(**clean_filter)
-        result = await async_session.execute(query)
-        return result.scalars().first()

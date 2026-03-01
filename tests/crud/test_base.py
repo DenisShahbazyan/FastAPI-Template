@@ -1,4 +1,3 @@
-from datetime import datetime
 from http import HTTPStatus
 
 import pytest
@@ -24,7 +23,7 @@ class TestCRUDGet:
     ) -> None:
         """Тест успешного получения объекта по ID."""
         test_obj = created_objects[0]
-        result = await crud.get(async_session, id=test_obj.id)
+        result = await crud.get(async_session, {'id': test_obj.id})
 
         assert result is not None
         assert result.id == test_obj.id
@@ -39,7 +38,7 @@ class TestCRUDGet:
     ) -> None:
         """Тест успешного получения объекта по одному полю."""
         test_obj = created_objects[0]
-        result = await crud.get(async_session, email=test_obj.email)
+        result = await crud.get(async_session, {'email': test_obj.email})
 
         assert result is not None
         assert result.email == test_obj.email
@@ -54,8 +53,7 @@ class TestCRUDGet:
         test_obj = created_objects[0]
         result = await crud.get(
             async_session,
-            email=test_obj.email,
-            is_active=test_obj.is_active,
+            {'email': test_obj.email, 'is_active': test_obj.is_active},
         )
 
         assert result is not None
@@ -68,7 +66,7 @@ class TestCRUDGet:
         crud: CRUDBase[ModelForBaseCRUD],
     ) -> None:
         """Тест получения несуществующего объекта возвращает None."""
-        result = await crud.get(async_session, id=999)
+        result = await crud.get(async_session, {'id': 999})
         assert result is None
 
     async def test_get_without_filters_raises_error(
@@ -80,7 +78,7 @@ class TestCRUDGet:
         with pytest.raises(
             ValueError, match='Необходимо указать хотя бы одно поле для поиска'
         ):
-            await crud.get(async_session)
+            await crud.get(async_session, {})
 
 
 class TestCRUDGetOr404:
@@ -94,7 +92,7 @@ class TestCRUDGetOr404:
     ) -> None:
         """Тест успешного получения объекта через get_or_404."""
         test_obj = created_objects[0]
-        result = await crud.get_or_404(async_session, id=test_obj.id)
+        result = await crud.get_or_404(async_session, {'id': test_obj.id})
 
         assert result.id == test_obj.id
         assert result.name == test_obj.name
@@ -106,7 +104,7 @@ class TestCRUDGetOr404:
     ) -> None:
         """Тест 404 ошибки при получении несуществующего объекта."""
         with pytest.raises(HTTPException) as exc_info:
-            await crud.get_or_404(async_session, id=999)
+            await crud.get_or_404(async_session, {'id': 999})
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
         assert 'ModelForBaseCRUD with id=999 not found' in exc_info.value.detail
@@ -122,8 +120,8 @@ class TestCRUDGetOr404:
         with pytest.raises(HTTPException) as exc_info:
             await crud.get_or_404(
                 async_session,
+                {'id': 999},
                 _detail=custom_detail,
-                id=999,
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -270,7 +268,7 @@ class TestCRUDGetMulti:
         created_objects: list[ModelForBaseCRUD],
     ) -> None:
         """Тест получения объектов с фильтром."""
-        results = await crud.get_multi(async_session, is_active=True)
+        results = await crud.get_multi(async_session, {'is_active': True})
 
         assert len(results) == 2
         assert all(obj.is_active for obj in results)
@@ -312,7 +310,7 @@ class TestCRUDGetMultiOr404:
         created_objects: list[ModelForBaseCRUD],
     ) -> None:
         """Тест успешного получения объектов через get_multi_or_404."""
-        results = await crud.get_multi_or_404(async_session, is_active=True)
+        results = await crud.get_multi_or_404(async_session, {'is_active': True})
 
         assert len(results) == 2
         assert all(obj.is_active for obj in results)
@@ -324,7 +322,9 @@ class TestCRUDGetMultiOr404:
     ) -> None:
         """Тест 404 ошибки при получении пустого списка."""
         with pytest.raises(HTTPException) as exc_info:
-            await crud.get_multi_or_404(async_session, email='nonexistent@example.com')
+            await crud.get_multi_or_404(
+                async_session, {'email': 'nonexistent@example.com'}
+            )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
         assert (
@@ -342,7 +342,7 @@ class TestCRUDGetMultiOr404:
 
         with pytest.raises(HTTPException) as exc_info:
             await crud.get_multi_or_404(
-                async_session, _detail=custom_detail, is_active=True
+                async_session, {'is_active': True}, _detail=custom_detail
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -534,10 +534,10 @@ class TestCRUDCount:
         created_objects: list[ModelForBaseCRUD],
     ) -> None:
         """Тест подсчета объектов с фильтром."""
-        active_count = await crud.count(async_session, is_active=True)
+        active_count = await crud.count(async_session, {'is_active': True})
         assert active_count == 2
 
-        inactive_count = await crud.count(async_session, is_active=False)
+        inactive_count = await crud.count(async_session, {'is_active': False})
         assert inactive_count == 1
 
     async def test_count_empty_result(
@@ -546,7 +546,7 @@ class TestCRUDCount:
         crud: CRUDBase[ModelForBaseCRUD],
     ) -> None:
         """Тест подсчета когда объекты не найдены."""
-        count = await crud.count(async_session, email='nonexistent@example.com')
+        count = await crud.count(async_session, {'email': 'nonexistent@example.com'})
         assert count == 0
 
 
@@ -603,7 +603,7 @@ class TestCRUDExists:
         """Тест проверки существования существующего объекта."""
         test_obj = created_objects[0]
 
-        exists = await crud.exists(async_session, email=test_obj.email)
+        exists = await crud.exists(async_session, {'email': test_obj.email})
         assert exists is True
 
     async def test_exists_false(
@@ -612,7 +612,7 @@ class TestCRUDExists:
         crud: CRUDBase[ModelForBaseCRUD],
     ) -> None:
         """Тест проверки существования несуществующего объекта."""
-        exists = await crud.exists(async_session, email='nonexistent@example.com')
+        exists = await crud.exists(async_session, {'email': 'nonexistent@example.com'})
         assert exists is False
 
     async def test_exists_without_filters_raises_error(
@@ -624,7 +624,7 @@ class TestCRUDExists:
         with pytest.raises(
             ValueError, match='Необходимо указать хотя бы одно поле для поиска'
         ):
-            await crud.exists(async_session)
+            await crud.exists(async_session, {})
 
 
 class TestCRUDExistsOr404:
@@ -639,7 +639,7 @@ class TestCRUDExistsOr404:
         """Тест успешной проверки существования."""
         test_obj = created_objects[0]
 
-        result = await crud.exists_or_404(async_session, email=test_obj.email)
+        result = await crud.exists_or_404(async_session, {'email': test_obj.email})
         assert result is True
 
     async def test_exists_or_404_not_found_raises(
@@ -649,7 +649,9 @@ class TestCRUDExistsOr404:
     ) -> None:
         """Тест 404 ошибки когда объект не найден."""
         with pytest.raises(HTTPException) as exc_info:
-            await crud.exists_or_404(async_session, email='nonexistent@example.com')
+            await crud.exists_or_404(
+                async_session, {'email': 'nonexistent@example.com'}
+            )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
         assert (
@@ -668,8 +670,8 @@ class TestCRUDExistsOr404:
         with pytest.raises(HTTPException) as exc_info:
             await crud.exists_or_404(
                 async_session,
+                {'email': 'nonexistent@example.com'},
                 _detail=custom_detail,
-                email='nonexistent@example.com',
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -793,7 +795,7 @@ class TestCRUDNotExistsOr409:
     ) -> None:
         """Тест успешной проверки отсутствия объекта."""
         result = await crud.not_exists_or_409(
-            async_session, email='new_unique@example.com'
+            async_session, {'email': 'new_unique@example.com'}
         )
         assert result is True
 
@@ -807,7 +809,7 @@ class TestCRUDNotExistsOr409:
         test_obj = created_objects[0]
 
         with pytest.raises(HTTPException) as exc_info:
-            await crud.not_exists_or_409(async_session, email=test_obj.email)
+            await crud.not_exists_or_409(async_session, {'email': test_obj.email})
 
         assert exc_info.value.status_code == HTTPStatus.CONFLICT
         assert 'already exists' in exc_info.value.detail
@@ -824,7 +826,7 @@ class TestCRUDNotExistsOr409:
 
         with pytest.raises(HTTPException) as exc_info:
             await crud.not_exists_or_409(
-                async_session, _detail=custom_detail, email=test_obj.email
+                async_session, {'email': test_obj.email}, _detail=custom_detail
             )
 
         assert exc_info.value.status_code == HTTPStatus.CONFLICT
@@ -841,7 +843,8 @@ class TestCRUDNotExistsOr409:
 
         with pytest.raises(HTTPException) as exc_info:
             await crud.not_exists_or_409(
-                async_session, email=test_obj.email, user_id=test_obj.user_id
+                async_session,
+                {'email': test_obj.email, 'user_id': test_obj.user_id},
             )
 
         assert exc_info.value.status_code == HTTPStatus.CONFLICT
@@ -930,7 +933,7 @@ class TestCRUDGetOrCreate:
         existing_obj = created_objects[0]
 
         result, created = await crud.get_or_create(
-            async_session, email=existing_obj.email
+            async_session, {'email': existing_obj.email}
         )
 
         assert not created  # Объект не был создан
@@ -945,12 +948,12 @@ class TestCRUDGetOrCreate:
         """Тест создания нового объекта."""
         result, created = await crud.get_or_create(
             async_session,
+            {'email': 'newcreated@example.com'},
             defaults={
                 'name': 'New Created User',
                 'description': 'Created via get_or_create',
                 'is_active': True,
             },
-            email='newcreated@example.com',
         )
 
         assert created  # Объект был создан
@@ -967,7 +970,7 @@ class TestCRUDGetOrCreate:
         with pytest.raises(
             ValueError, match='Необходимо указать хотя бы одно поле для поиска'
         ):
-            await crud.get_or_create(async_session)
+            await crud.get_or_create(async_session, {})
 
 
 class TestCRUDGetOrCreateWithPydantic:
@@ -1257,7 +1260,9 @@ class TestCRUDUpdateOr404:
         test_obj = created_objects[0]
         update_data = ModelForBaseCRUDUpdateSchema(name='Updated via 404')
 
-        result = await crud.update_or_404(async_session, update_data, id=test_obj.id)
+        result = await crud.update_or_404(
+            async_session, update_data, {'id': test_obj.id}
+        )
 
         assert result.name == 'Updated via 404'
         assert result.id == test_obj.id
@@ -1271,25 +1276,9 @@ class TestCRUDUpdateOr404:
         update_data = ModelForBaseCRUDUpdateSchema(name='Updated Name')
 
         with pytest.raises(HTTPException) as exc_info:
-            await crud.update_or_404(async_session, update_data, id=999)
+            await crud.update_or_404(async_session, update_data, {'id': 999})
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
-
-    async def test_update_or_404_custom_detail(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-    ) -> None:
-        """Тест кастомного сообщения об ошибке через get_or_404."""
-        update_data = ModelForBaseCRUDUpdateSchema(name='Updated Name')
-
-        with pytest.raises(HTTPException) as exc_info:
-            await crud.update_or_404(
-                async_session, update_data, _detail='Пользователь не найден', id=999
-            )
-
-        assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
-        assert exc_info.value.detail == 'Пользователь не найден'
 
 
 class TestCRUDUpdateByFields:
@@ -1310,13 +1299,13 @@ class TestCRUDUpdateByFields:
                 'name': 'Bulk Updated',
                 'is_active': False,
             },
-            id=test_obj.id,
+            {'id': test_obj.id},
         )
 
         assert updated_count == 1
 
         # Проверяем что объект действительно обновился
-        updated_obj = await crud.get(async_session, id=test_obj.id)
+        updated_obj = await crud.get(async_session, {'id': test_obj.id})
         assert updated_obj.name == 'Bulk Updated'
         assert updated_obj.is_active is False
 
@@ -1330,13 +1319,13 @@ class TestCRUDUpdateByFields:
         updated_count = await crud.update_by_fields(
             async_session,
             {'description': 'Bulk updated description'},
-            is_active=True,
+            {'is_active': True},
         )
 
         assert updated_count == 2  # Два активных пользователя
 
         # Проверяем что объекты действительно обновились
-        active_objects = await crud.get_multi(async_session, is_active=True)
+        active_objects = await crud.get_multi(async_session, {'is_active': True})
         assert all(
             obj.description == 'Bulk updated description' for obj in active_objects
         )
@@ -1350,7 +1339,7 @@ class TestCRUDUpdateByFields:
         updated_count = await crud.update_by_fields(
             async_session,
             {'name': 'Updated Name'},
-            email='nonexistent@example.com',
+            {'email': 'nonexistent@example.com'},
         )
 
         assert updated_count == 0
@@ -1364,7 +1353,7 @@ class TestCRUDUpdateByFields:
         with pytest.raises(
             ValueError, match='Необходимо указать хотя бы одно поле для фильтрации'
         ):
-            await crud.update_by_fields(async_session, {'name': 'Updated'})
+            await crud.update_by_fields(async_session, {'name': 'Updated'}, {})
 
 
 class TestCRUDUpdateByFieldsOr404:
@@ -1385,13 +1374,13 @@ class TestCRUDUpdateByFieldsOr404:
                 'name': 'Updated via 404',
                 'is_active': False,
             },
-            id=test_obj.id,
+            {'id': test_obj.id},
         )
 
         assert updated_count == 1
 
         # Проверяем что объект действительно обновился
-        updated_obj = await crud.get(async_session, id=test_obj.id)
+        updated_obj = await crud.get(async_session, {'id': test_obj.id})
         assert updated_obj.name == 'Updated via 404'
         assert updated_obj.is_active is False
 
@@ -1405,7 +1394,7 @@ class TestCRUDUpdateByFieldsOr404:
             await crud.update_by_fields_or_404(
                 async_session,
                 {'name': 'Updated Name'},
-                id=999,
+                {'id': 999},
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -1425,8 +1414,8 @@ class TestCRUDUpdateByFieldsOr404:
             await crud.update_by_fields_or_404(
                 async_session,
                 {'name': 'Updated Name'},
+                {'id': 999},
                 _detail=custom_detail,
-                id=999,
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -1457,7 +1446,9 @@ class TestCRUDUpdateByCondition:
         assert updated_count == 2  # Два активных пользователя с user_id=1
 
         # Проверяем что объекты действительно обновились
-        updated_objects = await crud.get_multi(async_session, is_active=True, user_id=1)
+        updated_objects = await crud.get_multi(
+            async_session, {'is_active': True, 'user_id': 1}
+        )
         assert all(obj.description == 'Updated by condition' for obj in updated_objects)
 
     async def test_update_by_condition_no_objects_found(
@@ -1515,7 +1506,9 @@ class TestCRUDUpdateByConditionOr404:
         assert updated_count == 2  # Два активных пользователя с user_id=1
 
         # Проверяем что объекты действительно обновились
-        updated_objects = await crud.get_multi(async_session, is_active=True, user_id=1)
+        updated_objects = await crud.get_multi(
+            async_session, {'is_active': True, 'user_id': 1}
+        )
         assert all(
             obj.description == 'Updated by condition or 404' for obj in updated_objects
         )
@@ -1586,13 +1579,13 @@ class TestCRUDUpdateWithPydanticByFields:
         )
 
         updated_count = await crud.update_with_pydantic_by_fields(
-            async_session, update_data, id=test_obj.id
+            async_session, update_data, {'id': test_obj.id}
         )
 
         assert updated_count == 1
 
         # Проверяем что объект действительно обновился
-        updated_obj = await crud.get(async_session, id=test_obj.id)
+        updated_obj = await crud.get(async_session, {'id': test_obj.id})
         assert updated_obj.name == 'Updated via Pydantic'
         assert updated_obj.description == 'Updated description via Pydantic'
 
@@ -1610,13 +1603,13 @@ class TestCRUDUpdateWithPydanticByFields:
         update_data = ModelForBaseCRUDUpdateSchema(email='partial@example.com')
 
         updated_count = await crud.update_with_pydantic_by_fields(
-            async_session, update_data, id=test_obj.id
+            async_session, update_data, {'id': test_obj.id}
         )
 
         assert updated_count == 1
 
         # Проверяем что обновился только email, а name остался прежним
-        updated_obj = await crud.get(async_session, id=test_obj.id)
+        updated_obj = await crud.get(async_session, {'id': test_obj.id})
         assert updated_obj.email == 'partial@example.com'
         assert updated_obj.name == original_name  # Не изменился
 
@@ -1629,7 +1622,7 @@ class TestCRUDUpdateWithPydanticByFields:
         update_data = ModelForBaseCRUDUpdateSchema(name='Updated Name')
 
         updated_count = await crud.update_with_pydantic_by_fields(
-            async_session, update_data, email='nonexistent@example.com'
+            async_session, update_data, {'email': 'nonexistent@example.com'}
         )
 
         assert updated_count == 0
@@ -1652,13 +1645,13 @@ class TestCRUDUpdateWithPydanticByFieldsOr404:
         )
 
         updated_count = await crud.update_with_pydantic_by_fields_or_404(
-            async_session, update_data, id=test_obj.id
+            async_session, update_data, {'id': test_obj.id}
         )
 
         assert updated_count == 1
 
         # Проверяем что объект действительно обновился
-        updated_obj = await crud.get(async_session, id=test_obj.id)
+        updated_obj = await crud.get(async_session, {'id': test_obj.id})
         assert updated_obj.name == 'Updated via Pydantic 404'
         assert updated_obj.description == 'Updated via Pydantic 404'
 
@@ -1672,7 +1665,7 @@ class TestCRUDUpdateWithPydanticByFieldsOr404:
 
         with pytest.raises(HTTPException) as exc_info:
             await crud.update_with_pydantic_by_fields_or_404(
-                async_session, update_data, id=999
+                async_session, update_data, {'id': 999}
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -1691,7 +1684,7 @@ class TestCRUDUpdateWithPydanticByFieldsOr404:
 
         with pytest.raises(HTTPException) as exc_info:
             await crud.update_with_pydantic_by_fields_or_404(
-                async_session, update_data, _detail=custom_detail, id=999
+                async_session, update_data, {'id': 999}, _detail=custom_detail
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -1718,7 +1711,7 @@ class TestCRUDBulkUpdateByIds:
 
         # Проверяем что объекты обновились
         for obj_id in obj_ids:
-            obj = await crud.get(async_session, id=obj_id)
+            obj = await crud.get(async_session, {'id': obj_id})
             assert obj.description == 'Bulk updated'
 
     async def test_bulk_update_by_ids_empty_list(
@@ -1769,7 +1762,7 @@ class TestCRUDBulkUpdateByFieldValues:
 
         # Проверяем что объекты обновились
         for email in emails:
-            obj = await crud.get(async_session, email=email)
+            obj = await crud.get(async_session, {'email': email})
             assert obj.is_active is False
 
     async def test_bulk_update_by_field_values_empty_list(
@@ -1812,14 +1805,14 @@ class TestCRUDBulkUpdateAllByFields:
         total_updated = await crud.bulk_update_all_by_fields(
             async_session,
             {'description': 'Bulk updated all active'},
+            {'is_active': True},
             batch_size=2,
-            is_active=True,
         )
 
         assert total_updated == 2  # Два активных пользователя
 
         # Проверяем что объекты обновились
-        updated_objects = await crud.get_multi(async_session, is_active=True)
+        updated_objects = await crud.get_multi(async_session, {'is_active': True})
         assert all(
             obj.description == 'Bulk updated all active' for obj in updated_objects
         )
@@ -1833,8 +1826,8 @@ class TestCRUDBulkUpdateAllByFields:
         total_updated = await crud.bulk_update_all_by_fields(
             async_session,
             {'description': 'Updated'},
+            {'email': 'nonexistent@example.com'},
             batch_size=2,
-            email='nonexistent@example.com',
         )
 
         assert total_updated == 0
@@ -1849,7 +1842,7 @@ class TestCRUDBulkUpdateAllByFields:
             ValueError, match='Необходимо указать условия для обновления'
         ):
             await crud.bulk_update_all_by_fields(
-                async_session, {'description': 'Updated'}, batch_size=2
+                async_session, {'description': 'Updated'}, {}, batch_size=2
             )
 
 
@@ -2060,7 +2053,7 @@ class TestCRUDDelete:
         await crud.delete(async_session, test_obj)
 
         # Проверяем что объект удален
-        deleted_obj = await crud.get(async_session, id=object_id)
+        deleted_obj = await crud.get(async_session, {'id': object_id})
         assert deleted_obj is None
 
 
@@ -2074,12 +2067,12 @@ class TestCRUDDeleteByFields:
         created_objects: list[ModelForBaseCRUD],
     ) -> None:
         """Тест удаления объектов по полям."""
-        deleted_count = await crud.delete_by_fields(async_session, is_active=False)
+        deleted_count = await crud.delete_by_fields(async_session, {'is_active': False})
 
         assert deleted_count == 1  # Один неактивный пользователь
 
         # Проверяем что неактивные пользователи удалены
-        inactive_users = await crud.get_multi(async_session, is_active=False)
+        inactive_users = await crud.get_multi(async_session, {'is_active': False})
         assert len(inactive_users) == 0
 
     async def test_delete_by_fields_multiple_objects(
@@ -2089,12 +2082,12 @@ class TestCRUDDeleteByFields:
         created_objects: list[ModelForBaseCRUD],
     ) -> None:
         """Тест удаления нескольких объектов."""
-        deleted_count = await crud.delete_by_fields(async_session, user_id=1)
+        deleted_count = await crud.delete_by_fields(async_session, {'user_id': 1})
 
         assert deleted_count == 2  # Два пользователя с user_id=1
 
         # Проверяем что пользователи с user_id=1 удалены
-        users_with_id_1 = await crud.get_multi(async_session, user_id=1)
+        users_with_id_1 = await crud.get_multi(async_session, {'user_id': 1})
         assert len(users_with_id_1) == 0
 
     async def test_delete_by_fields_no_objects_found(
@@ -2104,7 +2097,7 @@ class TestCRUDDeleteByFields:
     ) -> None:
         """Тест удаления когда объекты не найдены."""
         deleted_count = await crud.delete_by_fields(
-            async_session, email='nonexistent@example.com'
+            async_session, {'email': 'nonexistent@example.com'}
         )
 
         assert deleted_count == 0
@@ -2118,7 +2111,7 @@ class TestCRUDDeleteByFields:
         with pytest.raises(
             ValueError, match='Необходимо указать хотя бы одно поле для удаления'
         ):
-            await crud.delete_by_fields(async_session)
+            await crud.delete_by_fields(async_session, {})
 
 
 class TestCRUDDeleteByFieldsOr404:
@@ -2134,13 +2127,13 @@ class TestCRUDDeleteByFieldsOr404:
         test_obj = created_objects[0]
 
         deleted_count = await crud.delete_by_fields_or_404(
-            async_session, id=test_obj.id
+            async_session, {'id': test_obj.id}
         )
 
         assert deleted_count == 1
 
         # Проверяем что объект удален
-        deleted_obj = await crud.get(async_session, id=test_obj.id)
+        deleted_obj = await crud.get(async_session, {'id': test_obj.id})
         assert deleted_obj is None
 
     async def test_delete_by_fields_or_404_not_found_raises_404(
@@ -2150,7 +2143,7 @@ class TestCRUDDeleteByFieldsOr404:
     ) -> None:
         """Тест 404 ошибки при удалении несуществующего объекта."""
         with pytest.raises(HTTPException) as exc_info:
-            await crud.delete_by_fields_or_404(async_session, id=999)
+            await crud.delete_by_fields_or_404(async_session, {'id': 999})
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
         assert (
@@ -2167,7 +2160,7 @@ class TestCRUDDeleteByFieldsOr404:
 
         with pytest.raises(HTTPException) as exc_info:
             await crud.delete_by_fields_or_404(
-                async_session, _detail=custom_detail, id=999
+                async_session, {'id': 999}, _detail=custom_detail
             )
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
@@ -2197,7 +2190,9 @@ class TestCRUDDeleteByCondition:
         assert deleted_count == 2  # Два активных пользователя с user_id=1
 
         # Проверяем что объекты удалены
-        remaining_users = await crud.get_multi(async_session, user_id=1, is_active=True)
+        remaining_users = await crud.get_multi(
+            async_session, {'user_id': 1, 'is_active': True}
+        )
         assert len(remaining_users) == 0
 
     async def test_delete_by_condition_no_objects_found(
@@ -2253,7 +2248,9 @@ class TestCRUDDeleteByConditionOr404:
         assert deleted_count == 2  # Два активных пользователя с user_id=1
 
         # Проверяем что объекты удалены
-        remaining_users = await crud.get_multi(async_session, user_id=1, is_active=True)
+        remaining_users = await crud.get_multi(
+            async_session, {'user_id': 1, 'is_active': True}
+        )
         assert len(remaining_users) == 0
 
     async def test_delete_by_condition_or_404_not_found_raises_404(
@@ -2321,7 +2318,7 @@ class TestCRUDBulkDeleteByIds:
 
         # Проверяем что объекты удалены
         for obj_id in obj_ids:
-            obj = await crud.get(async_session, id=obj_id)
+            obj = await crud.get(async_session, {'id': obj_id})
             assert obj is None
 
     async def test_bulk_delete_by_ids_empty_list(
@@ -2365,7 +2362,7 @@ class TestCRUDBulkDeleteByFieldValues:
 
         # Проверяем что объекты удалены
         for email in emails:
-            obj = await crud.get(async_session, email=email)
+            obj = await crud.get(async_session, {'email': email})
             assert obj is None
 
     async def test_bulk_delete_by_field_values_empty_list(
@@ -2406,13 +2403,13 @@ class TestCRUDBulkDeleteAllByFields:
     ) -> None:
         """Тест массового удаления всех объектов по полям."""
         total_deleted = await crud.bulk_delete_all_by_fields(
-            async_session, batch_size=1, is_active=False
+            async_session, {'is_active': False}, batch_size=1
         )
 
         assert total_deleted == 1  # Один неактивный пользователь
 
         # Проверяем что объекты удалены
-        remaining_users = await crud.get_multi(async_session, is_active=False)
+        remaining_users = await crud.get_multi(async_session, {'is_active': False})
         assert len(remaining_users) == 0
 
     async def test_bulk_delete_all_by_fields_no_objects_found(
@@ -2422,7 +2419,7 @@ class TestCRUDBulkDeleteAllByFields:
     ) -> None:
         """Тест удаления когда объекты не найдены."""
         total_deleted = await crud.bulk_delete_all_by_fields(
-            async_session, batch_size=1, email='nonexistent@example.com'
+            async_session, {'email': 'nonexistent@example.com'}, batch_size=1
         )
 
         assert total_deleted == 0
@@ -2434,7 +2431,7 @@ class TestCRUDBulkDeleteAllByFields:
     ) -> None:
         """Тест ошибки при удалении без фильтров."""
         with pytest.raises(ValueError, match='Необходимо указать условия для удаления'):
-            await crud.bulk_delete_all_by_fields(async_session, batch_size=1)
+            await crud.bulk_delete_all_by_fields(async_session, {}, batch_size=1)
 
 
 class TestCRUDBulkDeleteAllByCondition:
@@ -2461,7 +2458,9 @@ class TestCRUDBulkDeleteAllByCondition:
         assert total_deleted == 2  # Два активных пользователя с user_id=1
 
         # Проверяем что объекты удалены
-        remaining_users = await crud.get_multi(async_session, user_id=1, is_active=True)
+        remaining_users = await crud.get_multi(
+            async_session, {'user_id': 1, 'is_active': True}
+        )
         assert len(remaining_users) == 0
 
     async def test_bulk_delete_all_by_condition_no_objects_found(
@@ -2491,205 +2490,3 @@ class TestCRUDBulkDeleteAllByCondition:
         """Тест ошибки при удалении без условий."""
         with pytest.raises(ValueError, match='Необходимо указать условия для удаления'):
             await crud.bulk_delete_all_by_condition(async_session, batch_size=1)
-
-
-class TestCRUDSoftDelete:
-    """Тесты для метода soft_delete."""
-
-    async def test_soft_delete_success(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-        created_objects: list[ModelForBaseCRUD],
-    ) -> None:
-        """Тест успешного мягкого удаления объекта."""
-        test_obj = created_objects[0]
-
-        # Добавляем поля для мягкого удаления в тестовую модель
-        test_obj.is_deleted = False
-        test_obj.deleted_at = None
-
-        result = await crud.soft_delete(async_session, test_obj)
-
-        assert result.is_deleted is True
-        assert result.deleted_at is not None
-        assert result.id == test_obj.id  # Тот же объект
-
-    async def test_soft_delete_with_custom_fields(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-        created_objects: list[ModelForBaseCRUD],
-    ) -> None:
-        """Тест мягкого удаления с кастомными полями."""
-        test_obj = created_objects[0]
-
-        # Добавляем кастомные поля
-        test_obj.status = 'active'
-        test_obj.archived_at = None
-        test_obj.archived_by = None
-
-        result = await crud.soft_delete(
-            async_session,
-            test_obj,
-            delete_field='status',
-            delete_value='deleted',
-            deleted_at_field='archived_at',
-            deleted_by_field='archived_by',
-            user_id=999,
-        )
-
-        assert result.status == 'deleted'
-        assert result.archived_at is not None
-        assert result.archived_by == 999
-
-    async def test_soft_delete_nonexistent_field_raises_error(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-        created_objects: list[ModelForBaseCRUD],
-    ) -> None:
-        """Тест ошибки при несуществующем поле."""
-        test_obj = created_objects[0]
-
-        with pytest.raises(
-            AttributeError, match="Поле 'nonexistent' не существует в модели"
-        ):
-            await crud.soft_delete(async_session, test_obj, delete_field='nonexistent')
-
-
-class TestCRUDSoftDeleteByFields:
-    """Тесты для метода soft_delete_by_fields."""
-
-    async def test_soft_delete_by_fields_success(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-        created_objects: list[ModelForBaseCRUD],
-    ) -> None:
-        """Тест массового мягкого удаления по полям."""
-        # Подготавливаем объекты
-        for obj in created_objects:
-            obj.is_deleted = False
-            obj.deleted_at = None
-
-        deleted_count = await crud.soft_delete_by_fields(
-            async_session, user_id=999, is_active=False
-        )
-
-        assert deleted_count == 1  # Один неактивный пользователь
-
-        # Проверяем что объект мягко удален
-        inactive_obj = await crud.get(async_session, is_active=False)
-        if inactive_obj:
-            assert inactive_obj.is_deleted is True
-            assert inactive_obj.deleted_at is not None
-
-    async def test_soft_delete_by_fields_without_filters_raises_error(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-    ) -> None:
-        """Тест ошибки при отсутствии фильтров."""
-        with pytest.raises(
-            ValueError, match='Необходимо указать хотя бы одно поле для фильтрации'
-        ):
-            await crud.soft_delete_by_fields(async_session)
-
-
-class TestCRUDSoftDeleteByCondition:
-    """Тесты для метода soft_delete_by_condition."""
-
-    async def test_soft_delete_by_condition_success(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-        created_objects: list[ModelForBaseCRUD],
-    ) -> None:
-        """Тест мягкого удаления по условиям."""
-        from sqlalchemy import and_
-
-        # Подготавливаем объекты
-        for obj in created_objects:
-            obj.is_deleted = False
-            obj.deleted_at = None
-
-        deleted_count = await crud.soft_delete_by_condition(
-            async_session,
-            and_(
-                ModelForBaseCRUD.is_active.is_(True),
-                ModelForBaseCRUD.user_id == 1,
-            ),
-            user_id=999,
-        )
-
-        assert deleted_count == 2  # Два активных пользователя с user_id=1
-
-    async def test_soft_delete_by_condition_without_conditions_raises_error(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-    ) -> None:
-        """Тест ошибки при отсутствии условий."""
-        with pytest.raises(
-            ValueError, match='Необходимо указать хотя бы одно условие для удаления'
-        ):
-            await crud.soft_delete_by_condition(async_session)
-
-
-class TestCRUDRestore:
-    """Тесты для метода restore."""
-
-    async def test_restore_success(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-        created_objects: list[ModelForBaseCRUD],
-    ) -> None:
-        """Тест восстановления мягко удаленного объекта."""
-        test_obj = created_objects[0]
-
-        # Сначала мягко удаляем
-        test_obj.is_deleted = True
-        test_obj.deleted_at = datetime.now()
-
-        # Затем восстанавливаем
-        result = await crud.restore(async_session, test_obj)
-
-        assert result.is_deleted is False
-        assert result.deleted_at is None
-        assert result.id == test_obj.id
-
-
-class TestCRUDGetWithDeleted:
-    """Тесты для метода get_with_deleted."""
-
-    async def test_get_with_deleted_success(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-        created_objects: list[ModelForBaseCRUD],
-    ) -> None:
-        """Тест поиска включая мягко удаленные объекты."""
-        test_obj = created_objects[0]
-
-        # Мягко удаляем объект
-        test_obj.is_deleted = True
-
-        # Обычный get не найдет (если добавить фильтрацию)
-        # Но get_with_deleted найдет
-        result = await crud.get_with_deleted(async_session, id=test_obj.id)
-
-        assert result is not None
-        assert result.id == test_obj.id
-
-    async def test_get_with_deleted_without_filters_raises_error(
-        self,
-        async_session: AsyncSession,
-        crud: CRUDBase[ModelForBaseCRUD],
-    ) -> None:
-        """Тест что метод требует фильтры."""
-        with pytest.raises(
-            ValueError, match='Необходимо указать хотя бы одно поле для поиска'
-        ):
-            await crud.get_with_deleted(async_session)
