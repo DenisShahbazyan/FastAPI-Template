@@ -82,8 +82,8 @@ jobs:
 
             echo "${{ secrets.DOCKER_PASSWORD }}" | sudo docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-            sudo docker-compose --env-file .env.docker down
+            sudo docker compose --env-file .env.docker down
             sudo docker rm -f fastapi
             sudo docker rmi -f ${{ secrets.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}
 
-            sudo docker-compose --env-file .env.docker up -d
+            sudo docker compose --env-file .env.docker up -d
