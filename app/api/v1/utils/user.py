@@ -18,7 +18,7 @@ def modify_standard_auth_endpoints(
 
     должен совпадать с путем в настройках fastapi-users:
 
-        bearer_transport = BearerTransport(tokenUrl='/login')
+        bearer_transport = BearerTransport(tokenUrl='/v1/login')
 
     если это условие соблюдено - кнопка "Autorize" в swagger будет работать как
     OAuth2PasswordBearer (OAuth2, password)

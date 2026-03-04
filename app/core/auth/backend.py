@@ -7,7 +7,7 @@ from fastapi_users.authentication import (
 from app.core.config import settings
 from app.models.user import User
 
-bearer_transport = BearerTransport(tokenUrl='/login')
+bearer_transport = BearerTransport(tokenUrl='/v1/login')
 
 
 def get_access_jwt_strategy() -> JWTStrategy[User, int]:
