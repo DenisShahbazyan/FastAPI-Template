@@ -6,6 +6,6 @@ granian \
     --port 8000 \
     --workers 1 \
     --loop uvloop \
-    --backlog 4096 \
     --no-ws \
+    --respawn-failed-workers \
     app.main:app
