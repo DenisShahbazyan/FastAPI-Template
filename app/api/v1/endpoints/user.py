@@ -1,15 +1,13 @@
 from http import HTTPStatus
-from typing import Awaitable, Callable, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi_users.authentication import AuthenticationBackend
 from fastapi_users.authentication.strategy.jwt import JWTStrategy
 from fastapi_users.manager import BaseUserManager
 from fastapi_users.router.common import ErrorCode
 
 from app.api.v1.utils.user import (
-    modify_standard_auth_endpoints,
+    hide_standard_route,
     set_refresh_token_cookie,
 )
 from app.core.auth.backend import (
@@ -18,6 +16,7 @@ from app.core.auth.backend import (
     get_refresh_jwt_strategy,
 )
 from app.core.auth.users import current_user, fastapi_users
+from app.core.config import settings
 from app.models.user import User
 from app.schemas.v1.user import (
     LoginRequestSchema,
@@ -28,15 +27,15 @@ from app.schemas.v1.user import (
 
 router = APIRouter()
 
-
-@router.post('/auth/logout', tags=['auth'])
-async def logout(request: Request, response: Response) -> dict[str, str]:
-    response.delete_cookie(key='refresh_token')
-    return {'message': 'Успешный выход'}
-
+# ═══════════════════════════════════════════════════════════
+# Стандартные роутеры fastapi-users
+# ═══════════════════════════════════════════════════════════
 
 router.include_router(
-    fastapi_users.get_auth_router(auth_backend),
+    fastapi_users.get_auth_router(
+        auth_backend,
+        requires_verification=settings.jwt.REQUIRES_VERIFICATION,
+    ),
     prefix='/auth',
     tags=['auth'],
 )
@@ -47,61 +46,53 @@ router.include_router(
     tags=['auth'],
 )
 
+# ═══════════════════════════════════════════════════════════
+# Переопределение стандартных путей fastapi-users
+# ═══════════════════════════════════════════════════════════
 
-modify_standard_auth_endpoints(router, '/auth/login', '/login')
+hide_standard_route(router, current_path='/auth/login', new_path='/login')
+hide_standard_route(router, current_path='/auth/logout')
+
+# ═══════════════════════════════════════════════════════════
+# Кастомные роутеры
+# ═══════════════════════════════════════════════════════════
 
 
-def get_auth_router(
-    backend: AuthenticationBackend[User, int],
-    get_user_manager: Callable[..., Awaitable[BaseUserManager[User, int]]],
-    requires_verification: bool = False,
-) -> APIRouter:
-    router = APIRouter()
-
-    @router.post('/login')
-    async def login(
-        request: Request,
-        credentials: LoginRequestSchema,
-        user_manager: BaseUserManager[User, int] = Depends(get_user_manager),
-        access_strategy: JWTStrategy[User, int] = Depends(get_access_jwt_strategy),
-        refresh_strategy: JWTStrategy[User, int] = Depends(get_refresh_jwt_strategy),
-    ) -> Response:
-        oauth_credentials = OAuth2PasswordRequestForm(
+@router.post('/auth/login', tags=['auth'])
+async def login(
+    request: Request,
+    credentials: LoginRequestSchema,
+    user_manager: BaseUserManager[User, int] = Depends(fastapi_users.get_user_manager),
+    access_strategy: JWTStrategy[User, int] = Depends(get_access_jwt_strategy),
+    refresh_strategy: JWTStrategy[User, int] = Depends(get_refresh_jwt_strategy),
+) -> Response:
+    user = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(
             username=credentials.username,
             password=credentials.password,
         )
+    )
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorCode.LOGIN_BAD_CREDENTIALS,
+        )
+    if settings.jwt.REQUIRES_VERIFICATION and not user.is_verified:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorCode.LOGIN_USER_NOT_VERIFIED,
+        )
 
-        user = await user_manager.authenticate(oauth_credentials)
-        if user is None or not user.is_active:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=ErrorCode.LOGIN_BAD_CREDENTIALS,
-            )
-        if requires_verification and not user.is_verified:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=ErrorCode.LOGIN_USER_NOT_VERIFIED,
-            )
-        response = await backend.login(access_strategy, user)
-        response = await set_refresh_token_cookie(user, response, refresh_strategy)
-        await user_manager.on_after_login(user, request, response)
-        return response
-
-    return router
+    response = await auth_backend.login(access_strategy, user)
+    response = await set_refresh_token_cookie(user, response, refresh_strategy)
+    await user_manager.on_after_login(user, request, response)
+    return response
 
 
-router.include_router(
-    get_auth_router(
-        backend=auth_backend,
-        get_user_manager=cast(
-            Callable[..., Awaitable[BaseUserManager[User, int]]],
-            fastapi_users.get_user_manager,
-        ),
-        requires_verification=False,
-    ),
-    prefix='/auth',
-    tags=['auth'],
-)
+@router.post('/auth/logout', tags=['auth'])
+async def logout(response: Response) -> dict[str, str]:
+    response.delete_cookie(key='refresh_token')
+    return {'message': 'Успешный выход'}
 
 
 @router.post('/auth/refresh', tags=['auth'])

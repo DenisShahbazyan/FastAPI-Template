@@ -36,7 +36,7 @@ async def test_set_refresh_token_cookie_success() -> None:
         value='mocked_refresh_token',
         httponly=True,
         secure=True,
-        samesite='lax',
+        samesite='none',
         max_age=settings.jwt.REFRESH_TOKEN_LIFETIME_SECONDS,
     )
 
@@ -101,5 +101,5 @@ async def test_set_refresh_token_cookie_parameters() -> None:
     assert call_args[1]['value'] == 'test_token'
     assert call_args[1]['httponly'] is True
     assert call_args[1]['secure'] is True
-    assert call_args[1]['samesite'] == 'lax'
+    assert call_args[1]['samesite'] == 'none'
     assert call_args[1]['max_age'] == settings.jwt.REFRESH_TOKEN_LIFETIME_SECONDS

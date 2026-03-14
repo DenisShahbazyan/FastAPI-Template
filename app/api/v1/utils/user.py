@@ -1,48 +1,44 @@
 from fastapi import APIRouter, Response
 from fastapi.routing import APIRoute
 from fastapi_users.authentication.strategy.jwt import JWTStrategy
+from starlette.routing import compile_path
 
 from app.core.config import settings
 from app.models.user import User
 
 
-def modify_standard_auth_endpoints(
-    router: APIRouter, old_path: str, new_path: str
+def hide_standard_route(
+    router: APIRouter,
+    *,
+    current_path: str,
+    new_path: str | None = None,
 ) -> None:
-    """### Модификация пути стандартного роутера авторизации в fastapi-users.
+    """Скрыть стандартный роут fastapi-users из схемы.
 
-    Новый путь в парметрах:
-
-        route.path = '/login'
-        route.path_format = '/login'
-
-    должен совпадать с путем в настройках fastapi-users:
-
-        bearer_transport = BearerTransport(tokenUrl='/v1/login')
-
-    если это условие соблюдено - кнопка "Autorize" в swagger будет работать как
-    OAuth2PasswordBearer (OAuth2, password)
-
-    Args:
-        router (APIRouter): _description_
+    Если передан `new_path` — роут переносится на новый путь (например,
+        стандартный form-login → `/login` для OAuth2PasswordBearer в Swagger).
+    Без `new_path` — роут удаляется из роутера, освобождая путь для кастомной реализации
     """
-    for route in router.routes:
-        if isinstance(route, APIRoute):
-            if route.path == old_path:
+    if new_path is not None:
+        for route in router.routes:
+            if isinstance(route, APIRoute) and route.path == current_path:
                 route.path = new_path
-                route.path_format = new_path
+                route.path_regex, route.path_format, route.param_convertors = (
+                    compile_path(new_path)
+                )
                 route.include_in_schema = False
-
-
-def modify_standard_logout_endpoints(router: APIRouter) -> None:
-    for route in router.routes:
-        if isinstance(route, APIRoute):
-            if route.path == '/auth/logout':
-                route.include_in_schema = False
+    else:
+        router.routes = [
+            route
+            for route in router.routes
+            if not (isinstance(route, APIRoute) and route.path == current_path)
+        ]
 
 
 async def set_refresh_token_cookie(
-    user: User, response: Response, refresh_strategy: JWTStrategy[User, int]
+    user: User,
+    response: Response,
+    refresh_strategy: JWTStrategy[User, int],
 ) -> Response:
     refresh_token = await refresh_strategy.write_token(user)
     response.set_cookie(
@@ -50,7 +46,7 @@ async def set_refresh_token_cookie(
         value=refresh_token,
         httponly=True,
         secure=True,
-        samesite='lax',
+        samesite='none',
         max_age=settings.jwt.REFRESH_TOKEN_LIFETIME_SECONDS,
     )
     return response
