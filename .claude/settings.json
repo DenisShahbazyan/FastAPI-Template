@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/api/endpoints/test_user.py tests/api/utils/test_user.py -x -q)"
+    ]
+  }
+}
