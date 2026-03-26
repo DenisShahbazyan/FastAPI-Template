@@ -12,8 +12,8 @@ class DB(BaseModel):
     port: int = 5432
     username: str = 'postgres'
     password: str = 'postgres'
-    name: str = 'test_db'
-    url: str = 'postgresql+asyncpg://postgres:postgres@localhost:5432/test_db'
+    name: str = 'name'
+    url: str = ''
 
     @model_validator(mode='after')
     def assemble_dsn(self, validation_info: ValidationInfo) -> Self:

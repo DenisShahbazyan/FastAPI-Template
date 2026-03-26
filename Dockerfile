@@ -25,7 +25,14 @@ EXPOSE 8000
 
 RUN chmod +x /app/scripts/start_with_migration.sh /app/scripts/start.sh
 
+# Создаём непривилегированного пользователя
+RUN groupadd --system appgroup \
+    && useradd --system --gid appgroup --no-create-home appuser \
+    && chown -R appuser:appgroup /app
+
 # Помещаем скрипты в PATH, чтобы их можно было запускать без uv run
 ENV PATH="/app/.venv/bin:$PATH"
+
+USER appuser:appgroup
 
 ENTRYPOINT ["./scripts/start_with_migration.sh"]
