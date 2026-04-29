@@ -13,7 +13,7 @@ services:
       - .env.docker
 
   web:
-    image: ${DOCKER_USERNAME}/fastapi_template:latest
+    image: ${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:latest
     container_name: fastapi
     restart: always
     depends_on:
